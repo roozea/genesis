@@ -1,0 +1,153 @@
+/* GENESIS — Animaciones CSS para el mundo pixel-art */
+
+/* Shimmer del agua */
+@keyframes waterShimmer {
+  0%, 100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Animación de caminar - pierna izquierda */
+@keyframes walkLeft {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+/* Animación de caminar - pierna derecha */
+@keyframes walkRight {
+  0%, 100% {
+    transform: translateY(-2px);
+  }
+  50% {
+    transform: translateY(0);
+  }
+}
+
+/* Animación de hablar - boca */
+@keyframes talking {
+  0%, 100% {
+    height: 2px;
+    width: 4px;
+    border-radius: 0;
+  }
+  50% {
+    height: 3px;
+    width: 3px;
+    border-radius: 50%;
+  }
+}
+
+/* Animación de entrada del thought bubble */
+@keyframes bubbleIn {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px) scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+/* Animación de salida del thought bubble */
+@keyframes bubbleOut {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px) scale(0.8);
+  }
+}
+
+/* Animación de pulso suave para estado "pensando" */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* Animación de brillo en la perilla de puerta */
+@keyframes doorKnobGlow {
+  0%, 100% {
+    box-shadow: 0 0 2px 1px rgba(240, 192, 64, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 4px 2px rgba(240, 192, 64, 0.7);
+  }
+}
+
+/* Animación de brizna de pasto */
+@keyframes grassSway {
+  0%, 100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+
+/* Parpadeo sutil de estrellas/partículas */
+@keyframes twinkle {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* Cursor parpadeante para chat input */
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}
+
+/* Animación de carga */
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Animación de entrada de mensajes */
+@keyframes messageIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Animación de reflejo en agua */
+@keyframes waterReflection {
+  0%, 100% {
+    transform: translateX(0);
+    opacity: 0.2;
+  }
+  50% {
+    transform: translateX(2px);
+    opacity: 0.35;
+  }
+}
