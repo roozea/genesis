@@ -34,6 +34,7 @@ import {
   recordChatExchange,
   shouldCancelPath,
   clearCancelFlag,
+  forceDestination,
 } from './agents/worldState';
 import {
   tick as reflectionTick,
@@ -47,6 +48,21 @@ import {
   getTimeBehavior,
   isNight,
 } from './world/timeSystem';
+import {
+  parseTaskIntent,
+  createTask,
+  getActiveTask,
+  processTask,
+  approveTask,
+  rejectTask,
+  reworkTask,
+  formatDeliverable,
+  getConfirmationMessage,
+  getRewardMessage,
+  getResources,
+  onTaskStateChange,
+  TASK_TYPES,
+} from './agents/taskSystem';
 import { LOCATIONS } from './world/locations';
 import GameMap from './world/GameMap';
 import Header from './ui/Header';
@@ -93,6 +109,16 @@ export default function App() {
 
   // Sistema de tiempo Genesis (día/noche)
   const [genesisTime, setGenesisTime] = useState(getTimeState());
+
+  // Recursos de trabajo
+  const [resources, setResources] = useState(getResources());
+
+  // Estado visual de trabajo
+  const [workProgress, setWorkProgress] = useState(null); // null = no working, 0-100 = progress
+  const [floatingRewards, setFloatingRewards] = useState(null); // { knowledge, materials, inspiration }
+
+  // Cola de destino forzado (para cuando está trabajando)
+  const queuedDestinationRef = useRef(null);
 
   // Refs para intervalos
   const moveIntervalRef = useRef(null);
@@ -173,6 +199,14 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onTimeChange((timeState) => {
       setGenesisTime(timeState);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Sistema de tareas - suscribirse a cambios de recursos
+  useEffect(() => {
+    const unsubscribe = onTaskStateChange((taskState) => {
+      setResources(taskState.resources);
     });
     return unsubscribe;
   }, []);
@@ -400,6 +434,158 @@ export default function App() {
     addLog('chat', `Rodrigo: ${text.slice(0, 30)}...`, '💬');
 
     try {
+      // ═══ DETECTAR INTENCIÓN DE TAREA ═══
+      const taskIntent = parseTaskIntent(text);
+      console.log('[APP] Task intent:', taskIntent);
+
+      // ═══ NUEVA TAREA ═══
+      if (taskIntent.type === 'new_task') {
+        const confirmMsg = getConfirmationMessage(taskIntent);
+        setMessages(prev => [...prev, { role: 'assistant', content: confirmMsg }]);
+        addLog('task', `Nueva tarea: ${taskIntent.title}`, TASK_TYPES[taskIntent.taskType].icon);
+
+        // Crear tarea
+        const task = createTask(taskIntent);
+
+        // Ir al taller si no está ahí
+        if (currentLocation !== 'workshop') {
+          forceDestination('workshop', 'Ir al taller a trabajar');
+          addLog('system', 'Arq va al taller a trabajar', '🏗️');
+          setTimeout(() => makeDecision(), 100);
+        }
+
+        // Cambiar estado visual
+        setAgent(prev => ({ ...prev, state: 'working' }));
+        setAgentStatus('working');
+        setMoodState('focused');
+        setMood('focused');
+        setWorkProgress(0); // Iniciar barra de progreso
+
+        // Procesar tarea (con callbacks para pasos)
+        setIsLoading(false); // Permitir que el usuario siga viendo el chat
+
+        await processTask((step, current, total) => {
+          const progress = Math.round(((current + 1) / total) * 100);
+          setWorkProgress(progress);
+          setThought(`${step} (${current + 1}/${total})`);
+          setThoughtType('work'); // Tipo de thought para estilos
+          addLog('work', `Paso ${current + 1}/${total}: ${step}`, '⚙️');
+        });
+
+        setThought(null);
+        setThoughtType(null);
+        setWorkProgress(null); // Ocultar barra de progreso
+
+        // Mostrar resultado - cambiar a estado delivering (ping)
+        setAgent(prev => ({ ...prev, state: 'delivering' }));
+
+        const activeTask = getActiveTask();
+        if (activeTask && activeTask.deliverable) {
+          const formatted = formatDeliverable(activeTask);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: formatted + '\n\n¿Te sirve? 🔍',
+          }]);
+          addLog('task', 'Tarea completada, esperando review', '✅');
+        }
+
+        // Volver a idle después del ping
+        setTimeout(() => {
+          setAgent(prev => ({ ...prev, state: 'idle' }));
+        }, 500);
+
+        setAgentStatus('online');
+        return;
+      }
+
+      // ═══ APROBAR TAREA ═══
+      if (taskIntent.type === 'approve_task') {
+        const approvedTask = approveTask();
+        if (approvedTask) {
+          // Mostrar recursos flotantes
+          setFloatingRewards(approvedTask.reward);
+
+          // Animación de celebración (jump)
+          setAgent(prev => ({ ...prev, state: 'celebrating' }));
+
+          const rewardMsg = getRewardMessage(approvedTask);
+          setMessages(prev => [...prev, { role: 'assistant', content: rewardMsg }]);
+          addLog('task', `Aprobado: 📚+${approvedTask.reward.knowledge} 🪨+${approvedTask.reward.materials} ✨+${approvedTask.reward.inspiration}`, '👍');
+
+          // Limpiar después de la animación
+          setTimeout(() => {
+            setFloatingRewards(null);
+            setAgent(prev => ({ ...prev, state: 'idle' }));
+
+            // Procesar destino en cola si hay uno
+            if (queuedDestinationRef.current) {
+              const queued = queuedDestinationRef.current;
+              queuedDestinationRef.current = null;
+              forceDestination(queued.destination, queued.reason);
+              addLog('system', `Ahora voy a ${queued.destination}`, '📍');
+              setTimeout(() => makeDecision(), 100);
+            }
+          }, 2000);
+
+          setIsLoading(false);
+          setAgentStatus('online');
+          return;
+        }
+      }
+
+      // ═══ RECHAZAR TAREA ═══
+      if (taskIntent.type === 'reject_task') {
+        // Animación de rascarse la cabeza
+        setAgent(prev => ({ ...prev, state: 'scratching' }));
+
+        rejectTask(taskIntent.feedback);
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Entendido, lo mejoro. ${taskIntent.feedback ? 'Tomo nota de tu feedback.' : ''} Dame un momento... 🔧`,
+        }]);
+        addLog('task', 'Retrabajando con feedback...', '🔄');
+
+        // Delay para mostrar animación de scratching
+        await new Promise(resolve => setTimeout(resolve, 800));
+
+        setAgent(prev => ({ ...prev, state: 'building' })); // Estado building para retrabajo
+        setAgentStatus('working');
+        setWorkProgress(0);
+
+        await reworkTask((step, current, total) => {
+          const progress = total ? Math.round(((current + 1) / total) * 100) : 50;
+          setWorkProgress(progress);
+          setThought(step);
+          setThoughtType('work');
+          addLog('work', step, '⚙️');
+        });
+
+        setThought(null);
+        setThoughtType(null);
+        setWorkProgress(null);
+
+        // Mostrar nuevo resultado con delivering ping
+        setAgent(prev => ({ ...prev, state: 'delivering' }));
+
+        const activeTask = getActiveTask();
+        if (activeTask && activeTask.deliverable) {
+          const formatted = formatDeliverable(activeTask);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: formatted + '\n\n¿Ahora sí? 🔍',
+          }]);
+        }
+
+        setTimeout(() => {
+          setAgent(prev => ({ ...prev, state: 'idle' }));
+        }, 500);
+
+        setAgentStatus('online');
+        setIsLoading(false);
+        return;
+      }
+
+      // ═══ CHAT NORMAL ═══
       // Obtener estado del mundo actual (CONTEXTO VIVO)
       const worldState = getWorldState();
 
@@ -447,37 +633,52 @@ export default function App() {
       // Notificar al reflectionManager (para trigger de reflexión profunda)
       onChatMessage();
 
-      // DETECTAR INTENCIÓN y afectar al mundo
+      // DETECTAR INTENCIÓN DE MOVIMIENTO y afectar al mundo
       const intent = parseIntent(text);
-      console.log('[APP] Intent detectado:', intent);
+      console.log('[APP] Movement intent:', intent);
 
       if (intent.type !== 'chat') {
-        const processed = processIntent(intent, currentLocation);
-        console.log('[APP] Intent procesado:', processed);
-
-        if (processed) {
-          if (processed === 'go_to') {
+        // Si está trabajando, encolar el destino para después
+        const activeTask = getActiveTask();
+        if (activeTask && (activeTask.status === 'in_progress' || activeTask.status === 'review')) {
+          if (intent.type === 'go_to' && intent.destination) {
             const destName = LOCATIONS[intent.destination]?.name || intent.destination;
-            addLog('system', `Destino forzado: ${destName} (por chat)`, '📍');
+            queuedDestinationRef.current = {
+              destination: intent.destination,
+              reason: `Ir a ${destName} (solicitado durante trabajo)`,
+            };
+            // No agregar mensaje extra - la respuesta del chat ya fue dada
+            addLog('system', `Destino en cola: ${destName} (trabajando)`, '📋');
+          }
+          // No procesar el intent ahora
+        } else {
+          const processed = processIntent(intent, currentLocation);
+          console.log('[APP] Intent procesado:', processed);
 
-            // CRÍTICO: Triggear decisión INMEDIATA después de un pequeño delay
-            // para dar tiempo a que walkPath detecte el cancelCurrentPath
-            setTimeout(() => {
-              console.log('[APP] Triggeando makeDecision inmediato');
-              makeDecision();
-            }, 100);
+          if (processed) {
+            if (processed === 'go_to') {
+              const destName = LOCATIONS[intent.destination]?.name || intent.destination;
+              addLog('system', `Destino forzado: ${destName} (por chat)`, '📍');
 
-          } else if (processed === 'explore') {
-            addLog('system', 'Modo exploración activado (por chat)', '🔍');
+              // CRÍTICO: Triggear decisión INMEDIATA después de un pequeño delay
+              // para dar tiempo a que walkPath detecte el cancelCurrentPath
+              setTimeout(() => {
+                console.log('[APP] Triggeando makeDecision inmediato');
+                makeDecision();
+              }, 100);
 
-            // También triggear decisión inmediata para explorar
-            setTimeout(() => {
-              console.log('[APP] Triggeando makeDecision para explorar');
-              makeDecision();
-            }, 100);
+            } else if (processed === 'explore') {
+              addLog('system', 'Modo exploración activado (por chat)', '🔍');
 
-          } else if (processed === 'stop') {
-            addLog('system', 'Arq se detuvo (por chat)', '⏸️');
+              // También triggear decisión inmediata para explorar
+              setTimeout(() => {
+                console.log('[APP] Triggeando makeDecision para explorar');
+                makeDecision();
+              }, 100);
+
+            } else if (processed === 'stop') {
+              addLog('system', 'Arq se detuvo (por chat)', '⏸️');
+            }
           }
         }
       }
@@ -519,6 +720,7 @@ export default function App() {
         memoryCount={memoryCount}
         onBrainClick={() => setIsBrainPanelOpen(true)}
         genesisTime={genesisTime}
+        resources={resources}
       />
 
       {/* Contenido principal */}
@@ -544,7 +746,14 @@ export default function App() {
               border: `1px solid ${PALETTE.panelBorder}`,
             }}
           >
-            <GameMap agent={agent} thought={thought} thoughtType={thoughtType} timeFilter={genesisTime.filter} />
+            <GameMap
+                agent={agent}
+                thought={thought}
+                thoughtType={thoughtType}
+                timeFilter={genesisTime.filter}
+                workProgress={workProgress}
+                floatingRewards={floatingRewards}
+              />
           </div>
 
           {/* Log de actividad */}

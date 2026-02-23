@@ -6,7 +6,7 @@ import { PALETTE } from '../config/palette';
 
 const TILE_SIZE = 24;
 
-export default function GameMap({ agent, thought, thoughtType, timeFilter }) {
+export default function GameMap({ agent, thought, thoughtType, timeFilter, workProgress, floatingRewards }) {
   // Filtro de tiempo (día/noche)
   const filter = timeFilter || { filter: 'none', backgroundColor: 'transparent', overlay: 'none' };
 
@@ -53,6 +53,8 @@ export default function GameMap({ agent, thought, thoughtType, timeFilter }) {
             thought={thought}
             thoughtType={thoughtType}
             tileSize={TILE_SIZE}
+            workProgress={workProgress}
+            floatingRewards={floatingRewards}
           />
         )}
       </div>

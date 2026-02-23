@@ -5,7 +5,7 @@ import { MOOD_EMOJI } from '../agents/prompts';
 import { LOCATIONS } from '../world/locations';
 import { onStateChange } from '../config/llm';
 
-export default function Header({ level, xp, mood, location, iaCalls, elapsedTime, memoryCount = 0, onBrainClick, genesisTime }) {
+export default function Header({ level, xp, mood, location, iaCalls, elapsedTime, memoryCount = 0, onBrainClick, genesisTime, resources }) {
   const [llmState, setLlmState] = useState({ currentSource: 'checking' });
 
   // Suscribirse a cambios del estado LLM
@@ -104,6 +104,35 @@ export default function Header({ level, xp, mood, location, iaCalls, elapsedTime
           <span>🧠</span>
           <span style={{ color: 'inherit' }}>{memoryCount}</span>
         </button>
+
+        {/* Recursos */}
+        {resources && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '4px 10px',
+              backgroundColor: PALETTE.bg,
+              borderRadius: 4,
+              border: `1px solid ${PALETTE.panelBorder}`,
+            }}
+            title="Recursos de trabajo"
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <span>📚</span>
+              <span style={{ color: '#80c0ff' }}>{resources.knowledge}</span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <span>🪨</span>
+              <span style={{ color: '#c0a080' }}>{resources.materials}</span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <span>✨</span>
+              <span style={{ color: '#ffc040' }}>{resources.inspiration}</span>
+            </span>
+          </div>
+        )}
 
         {/* Nivel con barra de XP */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
