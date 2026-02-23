@@ -129,20 +129,29 @@ async function getOllamaModel() {
 
 /**
  * Llama a Ollama (local)
+ * @param {string} systemPrompt - System prompt
+ * @param {string} userMessage - Mensaje del usuario
+ * @param {string} tier - 'fast' para movimiento, 'chat' para conversación
  */
-async function callOllama(systemPrompt, userMessage) {
+async function callOllama(systemPrompt, userMessage, tier = 'fast') {
+  // Formato de prompt limpio para Ollama
+  const prompt = tier === 'chat'
+    ? `${systemPrompt}\n\nRodrigo dice: "${userMessage}"\n\nArq responde:`
+    : `${systemPrompt}\n\n${userMessage}`;
+
   const response = await fetch(`${OLLAMA_PROXY_URL}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: llmState.ollamaModel || 'qwen2.5:7b',
-      prompt: `${systemPrompt}\n\nUser: ${userMessage}\n\nAssistant:`,
+      prompt,
       stream: false,
       options: {
         temperature: 0.7,
-        num_predict: 200,
+        num_predict: tier === 'chat' ? 150 : 100, // Más tokens para chat
       },
     }),
+    signal: AbortSignal.timeout(15000), // 15s timeout
   });
 
   if (!response.ok) {
@@ -204,10 +213,10 @@ export async function think(systemPrompt, userMessage, tier = 'fast') {
     await initLlm();
   }
 
-  // Fallback chain según tier
-  const chain = tier === 'fast'
-    ? ['local', 'haiku', 'sonnet', 'fallback']
-    : ['sonnet', 'haiku', 'local', 'fallback'];
+  // Fallback chain: LOCAL SIEMPRE PRIMERO para ambos tiers
+  // fast = movimiento (respuestas cortas)
+  // chat = conversación (respuestas más elaboradas)
+  const chain = ['local', 'haiku', 'sonnet', 'fallback'];
 
   for (const source of chain) {
     try {
@@ -216,7 +225,7 @@ export async function think(systemPrompt, userMessage, tier = 'fast') {
       switch (source) {
         case 'local':
           if (!llmState.ollamaAvailable || !llmState.ollamaModel) continue;
-          response = await callOllama(systemPrompt, userMessage);
+          response = await callOllama(systemPrompt, userMessage, tier);
           if (response && response.trim()) {
             return { response, source: 'local' };
           }

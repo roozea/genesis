@@ -4,7 +4,16 @@ import { PALETTE } from './config/palette';
 import { think } from './config/llm';
 import { decideNextMove, calculatePath, getCurrentLocationKey, getMovementDirection } from './agents/brain';
 import { getChatSystemPrompt } from './agents/prompts';
-import { getStats, incrementIaCalls, getMemoryTexts, saveMemory, saveLog, getLogs } from './agents/memory';
+import {
+  getStats,
+  incrementIaCalls,
+  saveLog,
+  getLogs,
+  retrieveMemories,
+  formatMemoriesForPrompt,
+  getVisitedLocationsToday,
+} from './agents/memory';
+import { recordArrival, recordConversation } from './agents/brain';
 import { LOCATIONS } from './world/locations';
 import GameMap from './world/GameMap';
 import Header from './ui/Header';
@@ -62,7 +71,7 @@ export default function App() {
   }, []);
 
   // Caminar paso a paso por el path
-  const walkPath = useCallback(async (path, finalThought, startPos) => {
+  const walkPath = useCallback(async (path, finalThought, startPos, destinationKey) => {
     if (path.length === 0) return;
 
     isWalkingRef.current = true;
@@ -88,6 +97,11 @@ export default function App() {
     // Llegó al destino
     setAgent(prev => ({ ...prev, state: 'idle' }));
     isWalkingRef.current = false;
+
+    // Registrar llegada en memoria
+    if (destinationKey) {
+      recordArrival(destinationKey);
+    }
 
     // Mostrar thought bubble
     if (finalThought) {
@@ -138,8 +152,8 @@ export default function App() {
       // Actualizar últimas ubicaciones
       setLastLocations(prev => [...prev.slice(-3), currentLocation]);
 
-      // Caminar
-      await walkPath(path, decision.thought, { row: agent.row, col: agent.col });
+      // Caminar (pasando el destinationKey para registrar llegada)
+      await walkPath(path, decision.thought, { row: agent.row, col: agent.col }, decision.destination);
 
     } catch (error) {
       console.error('[App] Error en decisión:', error);
@@ -176,20 +190,33 @@ export default function App() {
     addLog('chat', `Tú: ${text.slice(0, 30)}...`, '💬');
 
     try {
+      // Recuperar memorias relevantes para el chat
+      const chatContext = `conversando sobre ${text.slice(0, 50)} en ${currentLocation}`;
+      const relevantMemories = retrieveMemories(chatContext, 5);
+      const memoriesText = formatMemoriesForPrompt(relevantMemories);
+      const visitedToday = getVisitedLocationsToday();
+
       // Obtener respuesta con el sistema de fallback
       const systemPrompt = getChatSystemPrompt(
         LOCATIONS[currentLocation]?.name || currentLocation,
         mood,
-        getMemoryTexts()
+        memoriesText,
+        visitedToday
       );
 
       const result = await think(systemPrompt, text, 'chat');
 
-      // Manejar fallback
+      // Manejar fallback (mensaje en personaje - Arq no sabe qué es "conexión")
       if (result.source === 'fallback' || !result.response) {
-        const errorMessage = { role: 'assistant', content: 'No tengo conexión ahora. Intenta más tarde. 🔧' };
+        const fallbackMessages = [
+          '*revisa sus circuitos* Algo no funciona... mis pensamientos están lentos hoy 🔧',
+          '*parpadea confundido* Hmm, mi mente está nublada. Dame un momento...',
+          '*se rasca el casco* No logro concentrarme. Debe ser el clima de Genesis 🌀',
+        ];
+        const randomMsg = fallbackMessages[Math.floor(Math.random() * fallbackMessages.length)];
+        const errorMessage = { role: 'assistant', content: randomMsg };
         setMessages(prev => [...prev, errorMessage]);
-        addLog('fallback', 'Sin conexión a IA', '⚠️');
+        addLog('fallback', 'Arq está confundido', '🔧');
         setIsLoading(false);
         setAgentStatus('online');
         return;
@@ -206,8 +233,8 @@ export default function App() {
       // Log con la fuente correcta (local, haiku, sonnet)
       addLog(result.source, `Arq: ${result.response.slice(0, 30)}...`, '🏗️');
 
-      // Guardar memoria
-      saveMemory(`Usuario: "${text.slice(0, 50)}" → Arq: "${result.response.slice(0, 50)}"`);
+      // Guardar memoria de conversación (nuevo sistema)
+      recordConversation(text, result.response, currentLocation);
 
       // Cambiar estado del agente brevemente
       setAgent(prev => ({ ...prev, state: 'talking' }));
@@ -217,9 +244,9 @@ export default function App() {
 
     } catch (error) {
       console.error('[App] Error en chat:', error);
-      const errorMessage = { role: 'assistant', content: 'Hmm, algo falló. Intenta de nuevo. 🔧' };
+      const errorMessage = { role: 'assistant', content: '*se frota las sienes* Perdí el hilo... ¿qué decías? 🤔' };
       setMessages(prev => [...prev, errorMessage]);
-      addLog('fallback', 'Error en respuesta', '⚠️');
+      addLog('fallback', 'Arq perdió concentración', '🔧');
     }
 
     setIsLoading(false);

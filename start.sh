@@ -44,43 +44,36 @@ cleanup() {
 # Capturar Ctrl+C
 trap cleanup SIGINT SIGTERM
 
-# 1. Verificar/Iniciar Ollama
+# 1. Verificar/Iniciar Ollama con CORS habilitado
 if command_exists ollama; then
+    # Siempre reiniciar Ollama con OLLAMA_ORIGINS="*" para evitar 403
     if ollama_running; then
-        echo -e "${GREEN}✓ Ollama detectado y corriendo${NC}"
+        echo -e "${YELLOW}⚡ Reiniciando Ollama con CORS habilitado...${NC}"
+        pkill ollama 2>/dev/null || true
+        sleep 1
+    fi
 
-        # Verificar modelo
-        if ollama list 2>/dev/null | grep -q "qwen2.5:7b"; then
-            echo -e "${GREEN}✓ Modelo qwen2.5:7b disponible${NC}"
-            echo -e "${CYAN}🖥️  Modo: LOCAL (Ollama + qwen2.5:7b)${NC}"
-        else
-            echo -e "${YELLOW}⚠️  Modelo qwen2.5:7b no encontrado${NC}"
-            echo -e "${CYAN}☁️  Modo: API (con fallback a local si se instala)${NC}"
+    # Iniciar Ollama con CORS abierto (necesario para acceso por red)
+    echo -e "${YELLOW}⚡ Iniciando Ollama...${NC}"
+    export OLLAMA_ORIGINS="*"
+    ollama serve >/dev/null 2>&1 &
+
+    # Esperar a que esté listo
+    for i in {1..5}; do
+        sleep 1
+        if ollama_running; then
+            echo -e "${GREEN}✓ Ollama iniciado (CORS habilitado)${NC}"
+            break
         fi
+    done
+
+    # Verificar modelo
+    if ollama_running && ollama list 2>/dev/null | grep -q "qwen2.5:7b"; then
+        echo -e "${GREEN}✓ Modelo qwen2.5:7b disponible${NC}"
+        echo -e "${CYAN}🖥️  Modo: LOCAL (Ollama + qwen2.5:7b)${NC}"
     else
-        echo -e "${YELLOW}⚡ Iniciando Ollama...${NC}"
-
-        # Iniciar Ollama en background
-        if [[ "$OS" == "Darwin" ]] && [ -d "/Applications/Ollama.app" ]; then
-            open -a Ollama
-        else
-            ollama serve >/dev/null 2>&1 &
-        fi
-
-        # Esperar a que esté listo
-        for i in {1..5}; do
-            sleep 1
-            if ollama_running; then
-                echo -e "${GREEN}✓ Ollama iniciado${NC}"
-                break
-            fi
-        done
-
-        if ollama_running && ollama list 2>/dev/null | grep -q "qwen2.5:7b"; then
-            echo -e "${CYAN}🖥️  Modo: LOCAL${NC}"
-        else
-            echo -e "${CYAN}☁️  Modo: API${NC}"
-        fi
+        echo -e "${YELLOW}⚠️  Modelo qwen2.5:7b no encontrado${NC}"
+        echo -e "${CYAN}☁️  Modo: API (con fallback a local si se instala)${NC}"
     fi
 else
     echo -e "${YELLOW}⚠️  Ollama no instalado${NC}"

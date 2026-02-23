@@ -54,40 +54,27 @@ fi
 
 echo ""
 
-# 2. Iniciar Ollama si no está corriendo
-echo "🔄 Verificando servicio Ollama..."
+# 2. Iniciar Ollama con CORS habilitado
+echo "🔄 Iniciando servicio Ollama..."
 
-# Intentar conectar a Ollama
-if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
-    echo -e "${GREEN}✓ Ollama está corriendo${NC}"
-else
-    echo -e "${YELLOW}⚡ Iniciando Ollama...${NC}"
+# Matar instancia existente para reiniciar con CORS
+pkill ollama 2>/dev/null || true
+sleep 1
 
-    # Iniciar Ollama en background
-    if [[ "$OS" == "Darwin" ]]; then
-        # En macOS, usar open para la app o ollama serve
-        if [ -d "/Applications/Ollama.app" ]; then
-            open -a Ollama
-            sleep 3
-        else
-            ollama serve &
-            sleep 2
-        fi
-    else
-        ollama serve &
-        sleep 2
+# Iniciar Ollama con CORS abierto (necesario para acceso por red)
+echo -e "${YELLOW}⚡ Iniciando Ollama con CORS habilitado...${NC}"
+export OLLAMA_ORIGINS="*"
+ollama serve >/dev/null 2>&1 &
+
+# Esperar a que esté listo
+for i in {1..10}; do
+    if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Ollama iniciado (CORS habilitado)${NC}"
+        break
     fi
-
-    # Esperar a que esté listo
-    for i in {1..10}; do
-        if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
-            echo -e "${GREEN}✓ Ollama iniciado${NC}"
-            break
-        fi
-        echo "   Esperando... ($i/10)"
-        sleep 1
-    done
-fi
+    echo "   Esperando... ($i/10)"
+    sleep 1
+done
 
 echo ""
 
