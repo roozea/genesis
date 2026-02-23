@@ -3,6 +3,7 @@ import { LOCATIONS } from '../world/locations';
 import { formatCoreMemories } from './seedMemories';
 import { getRelativeTime } from './worldState';
 import { getActiveProject } from './projects';
+import { getResources } from './taskSystem';
 
 /**
  * Genera el prompt para decisiones de movimiento (con memorias)
@@ -70,10 +71,14 @@ export function buildChatPrompt(worldState, memories = []) {
   // Ubicación actual
   const ubicacion = LOCATIONS[worldState.currentLocation]?.name || worldState.currentLocation;
 
-  // Recursos
-  const knowledge = worldState.resources?.knowledge || 0;
-  const materials = worldState.resources?.materials || 0;
-  const inspiration = worldState.resources?.inspiration || 0;
+  // Recursos - leer directamente de taskSystem (MISMA fuente que el Header)
+  const resources = getResources();
+  const knowledge = resources.knowledge || 0;
+  const materials = resources.materials || 0;
+  const inspiration = resources.inspiration || 0;
+
+  // Debug log
+  console.log('[CHAT] Recursos para prompt:', { knowledge, materials, inspiration });
 
   // Proyecto activo
   const activeProject = getActiveProject();
@@ -91,10 +96,17 @@ export function buildChatPrompt(worldState, memories = []) {
     .map(m => `- ${m.content || m}`)
     .join('\n') || '- Sin memorias relevantes';
 
-  // Log para debug
-  console.log('[CHAT] System prompt - Fecha:', fecha, 'Hora:', hora);
+  // Log para debug - verificar que datos reales aparecen
+  console.log('[CHAT] System prompt datos:', {
+    fecha,
+    hora,
+    ubicacion,
+    mood: worldState.mood,
+    recursos: `📚${knowledge} 🪨${materials} ✨${inspiration}`,
+    proyecto: proyectoStr
+  });
 
-  return `═══ DATOS REALES (no inventar, usar exactamente) ═══
+  const prompt = `═══ DATOS REALES (no inventar, usar exactamente) ═══
 Fecha: ${fecha}
 Hora: ${hora}
 Ubicación de Arq: ${ubicacion}
@@ -150,6 +162,11 @@ Tu creador. Te habla desde FUERA del mundo, como un chat. Él NO está en el map
 
 ═══ MEMORIAS RELEVANTES ═══
 ${memoriasStr}`;
+
+  // Log del prompt completo (solo primeras líneas)
+  console.log('[CHAT] System prompt completo (inicio):', prompt.slice(0, 300) + '...');
+
+  return prompt;
 }
 
 /**
