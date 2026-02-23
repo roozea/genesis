@@ -1,24 +1,71 @@
-// GENESIS — Panel de conversación con Arq
-import { useState, useRef, useEffect } from 'react';
+// GENESIS — Panel de conversación con Arq (UX mejorada)
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { PALETTE } from '../config/palette';
 import WelcomeScreen from './WelcomeScreen';
 
-export default function ChatPanel({ messages, onSendMessage, isLoading, agentStatus }) {
-  const [input, setInput] = useState('');
-  const messagesEndRef = useRef(null);
+// Constantes de estilo
+const STYLES = {
+  userBg: '#2a2a4a',
+  userBorder: '#f0c040',
+  arqBg: '#1a1a3a',
+  arqBorder: '#50c878',
+  deliverableBg: '#12122c',
+  deliverableBorder: '#252555',
+  deliverableHeaderBg: '#1a1a4a',
+};
 
-  // Auto-scroll al último mensaje
+export default function ChatPanel({
+  messages,
+  onSendMessage,
+  isLoading,
+  agentStatus,
+  workStep,        // { text: "Investigando...", current: 2, total: 3 } o null
+  onApproveTask,   // Callback para aprobar
+  onRejectTask,    // Callback para rechazar
+}) {
+  const [input, setInput] = useState('');
+  const messagesContainerRef = useRef(null);
+  const messagesEndRef = useRef(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+
+  // Detectar si el usuario scrolleó manualmente hacia arriba
+  const handleScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const { scrollHeight, scrollTop, clientHeight } = container;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+    setShouldAutoScroll(isAtBottom);
+  }, []);
+
+  // Auto-scroll inteligente
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (shouldAutoScroll && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, shouldAutoScroll, isLoading]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (input.trim() && !isLoading) {
       onSendMessage(input.trim());
       setInput('');
+      setShouldAutoScroll(true); // Volver a auto-scroll al enviar
     }
   };
+
+  // Indicador de estado
+  const getStatusInfo = () => {
+    if (agentStatus === 'working') {
+      return { text: 'trabajando', color: PALETTE.accent, icon: '⚙️' };
+    }
+    if (agentStatus === 'thinking') {
+      return { text: 'pensando', color: PALETTE.accentRed, icon: '🧠' };
+    }
+    return { text: 'en línea', color: PALETTE.accentGreen, icon: '🟢' };
+  };
+
+  const statusInfo = getStatusInfo();
 
   return (
     <div
@@ -39,26 +86,31 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, agentSta
           borderBottom: `1px solid ${PALETTE.panelBorder}`,
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
+          justifyContent: 'space-between',
           fontFamily: '"Press Start 2P", monospace',
           fontSize: 10,
         }}
       >
-        <span style={{ fontSize: 14 }}>🏗️</span>
-        <span style={{ color: PALETTE.text }}>Arq</span>
-        <span style={{ color: PALETTE.textDim }}>-</span>
-        <span
-          style={{
-            color: agentStatus === 'thinking' ? PALETTE.accentRed : PALETTE.accentGreen,
-            animation: agentStatus === 'thinking' ? 'pulse 1s infinite' : 'none',
-          }}
-        >
-          {agentStatus === 'thinking' ? 'pensando...' : 'en línea'}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 14 }}>🏗️</span>
+          <span style={{ color: PALETTE.text }}>Arq</span>
+          <span style={{ color: PALETTE.textDim }}>—</span>
+          <span
+            style={{
+              color: statusInfo.color,
+              animation: agentStatus !== 'online' ? 'pulse 1s infinite' : 'none',
+            }}
+          >
+            {statusInfo.text}
+          </span>
+        </div>
+        <span style={{ fontSize: 12 }}>{statusInfo.icon}</span>
       </div>
 
       {/* Área de mensajes */}
       <div
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
         style={{
           flex: 1,
           padding: 16,
@@ -72,9 +124,23 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, agentSta
           <WelcomeScreen />
         ) : (
           messages.map((msg, index) => (
-            <Message key={index} message={msg} />
+            <Message
+              key={index}
+              message={msg}
+              onApprove={onApproveTask}
+              onReject={onRejectTask}
+            />
           ))
         )}
+
+        {/* Indicador de typing/working */}
+        {(isLoading || agentStatus === 'working') && (
+          <TypingIndicator
+            isWorking={agentStatus === 'working'}
+            workStep={workStep}
+          />
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -129,32 +195,358 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, agentSta
   );
 }
 
-function Message({ message }) {
+// Componente de mensaje
+function Message({ message, onApprove, onReject }) {
   const isUser = message.role === 'user';
+  const isDeliverable = message.type === 'deliverable';
 
+  // Timestamp
+  const timestamp = message.timestamp
+    ? new Date(message.timestamp).toLocaleTimeString('es', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '';
+
+  if (isDeliverable) {
+    return (
+      <DeliverableCard
+        deliverable={message.deliverable}
+        timestamp={timestamp}
+        onApprove={onApprove}
+        onReject={onReject}
+      />
+    );
+  }
+
+  if (isUser) {
+    return <UserMessage content={message.content} timestamp={timestamp} />;
+  }
+
+  return <ArqMessage content={message.content} timestamp={timestamp} />;
+}
+
+// Mensaje del usuario (Rodrigo)
+function UserMessage({ content, timestamp }) {
   return (
     <div
       style={{
         display: 'flex',
-        justifyContent: isUser ? 'flex-end' : 'flex-start',
+        justifyContent: 'flex-end',
         animation: 'messageIn 0.3s ease-out',
       }}
     >
       <div
         style={{
-          maxWidth: '85%',
-          padding: '10px 14px',
-          backgroundColor: isUser ? PALETTE.accent : PALETTE.panel,
-          color: isUser ? PALETTE.bg : PALETTE.text,
-          borderRadius: isUser ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
+          position: 'relative',
+          maxWidth: '80%',
+          padding: '8px 10px',
+          paddingTop: timestamp ? 16 : 8,
+          backgroundColor: STYLES.userBg,
+          borderLeft: `2px solid ${STYLES.userBorder}`,
+          borderRadius: '8px 8px 2px 8px',
           fontFamily: '"Press Start 2P", monospace',
           fontSize: 9,
           lineHeight: 1.6,
-          boxShadow: `0 2px 8px rgba(0,0,0,0.2)`,
+          color: PALETTE.text,
+          wordWrap: 'break-word',
+          overflowWrap: 'break-word',
         }}
       >
-        {message.content}
+        {timestamp && (
+          <span
+            style={{
+              position: 'absolute',
+              top: 4,
+              right: 6,
+              fontSize: 6,
+              color: '#555',
+            }}
+          >
+            {timestamp}
+          </span>
+        )}
+        {content}
       </div>
+    </div>
+  );
+}
+
+// Mensaje de Arq
+function ArqMessage({ content, timestamp }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'flex-start',
+        animation: 'messageIn 0.3s ease-out',
+      }}
+    >
+      <div
+        style={{
+          position: 'relative',
+          maxWidth: '80%',
+          padding: '8px 10px',
+          paddingTop: 18,
+          backgroundColor: STYLES.arqBg,
+          borderLeft: `2px solid ${STYLES.arqBorder}`,
+          borderRadius: '2px 8px 8px 8px',
+          fontFamily: '"Press Start 2P", monospace',
+          fontSize: 9,
+          lineHeight: 1.6,
+          color: PALETTE.text,
+          wordWrap: 'break-word',
+          overflowWrap: 'break-word',
+          whiteSpace: 'pre-wrap',
+        }}
+      >
+        {/* Header con nombre y timestamp */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 4,
+            left: 8,
+            right: 8,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <span style={{ fontSize: 7, color: STYLES.arqBorder }}>
+            🏗️ Arq
+          </span>
+          {timestamp && (
+            <span style={{ fontSize: 6, color: '#555' }}>{timestamp}</span>
+          )}
+        </div>
+        {content}
+      </div>
+    </div>
+  );
+}
+
+// Card de deliverable (resultado de trabajo)
+function DeliverableCard({ deliverable, timestamp, onApprove, onReject }) {
+  const { type, title, content, stats, reward, status } = deliverable;
+
+  const typeConfig = {
+    research: { icon: '🔍', name: 'INVESTIGACIÓN' },
+    code: { icon: '💻', name: 'CÓDIGO' },
+    plan: { icon: '📋', name: 'PLANIFICACIÓN' },
+    review: { icon: '🔎', name: 'REVISIÓN' },
+  };
+
+  const config = typeConfig[type] || typeConfig.research;
+  const isPending = status === 'pending' || status === 'review';
+
+  return (
+    <div
+      style={{
+        animation: 'messageIn 0.3s ease-out',
+        margin: '8px 0',
+      }}
+    >
+      <div
+        style={{
+          backgroundColor: STYLES.deliverableBg,
+          border: `1px solid ${STYLES.deliverableBorder}`,
+          borderRadius: 8,
+          overflow: 'hidden',
+          fontFamily: '"Press Start 2P", monospace',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '8px 12px',
+            backgroundColor: STYLES.deliverableHeaderBg,
+            borderBottom: `1px solid ${STYLES.deliverableBorder}`,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12 }}>{config.icon}</span>
+            <span style={{ fontSize: 8, color: PALETTE.accent }}>
+              {config.name}
+            </span>
+          </div>
+          {timestamp && (
+            <span style={{ fontSize: 6, color: '#555' }}>{timestamp}</span>
+          )}
+        </div>
+
+        {/* Título */}
+        <div
+          style={{
+            padding: '8px 12px',
+            fontSize: 9,
+            color: PALETTE.text,
+            borderBottom: `1px solid ${STYLES.deliverableBorder}`,
+          }}
+        >
+          {title}
+        </div>
+
+        {/* Contenido */}
+        <div
+          style={{
+            padding: 12,
+            fontSize: 8,
+            lineHeight: 1.8,
+            color: PALETTE.text,
+            maxHeight: 300,
+            overflowY: 'auto',
+            wordWrap: 'break-word',
+            overflowWrap: 'break-word',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {content}
+        </div>
+
+        {/* Footer con stats */}
+        <div
+          style={{
+            padding: '8px 12px',
+            backgroundColor: STYLES.deliverableHeaderBg,
+            borderTop: `1px solid ${STYLES.deliverableBorder}`,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
+          {/* Stats */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              fontSize: 7,
+              color: PALETTE.textDim,
+            }}
+          >
+            {stats?.time && <span>⏱️ {stats.time}s</span>}
+            {reward && (
+              <>
+                <span style={{ color: '#80c0ff' }}>📚+{reward.knowledge}</span>
+                <span style={{ color: '#c0a080' }}>🪨+{reward.materials}</span>
+                <span style={{ color: '#ffc040' }}>✨+{reward.inspiration}</span>
+              </>
+            )}
+          </div>
+
+          {/* Botones de acción (solo si pendiente) */}
+          {isPending && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={onApprove}
+                style={{
+                  padding: '6px 10px',
+                  backgroundColor: '#2a4a2a',
+                  border: '1px solid #50c878',
+                  borderRadius: 4,
+                  color: '#50c878',
+                  fontFamily: '"Press Start 2P", monospace',
+                  fontSize: 7,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.backgroundColor = '#50c878';
+                  e.target.style.color = '#1a1a3a';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.backgroundColor = '#2a4a2a';
+                  e.target.style.color = '#50c878';
+                }}
+              >
+                👍 Aprobar
+              </button>
+              <button
+                onClick={onReject}
+                style={{
+                  padding: '6px 10px',
+                  backgroundColor: '#3a2a2a',
+                  border: '1px solid #c87850',
+                  borderRadius: 4,
+                  color: '#c87850',
+                  fontFamily: '"Press Start 2P", monospace',
+                  fontSize: 7,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.backgroundColor = '#c87850';
+                  e.target.style.color = '#1a1a3a';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.backgroundColor = '#3a2a2a';
+                  e.target.style.color = '#c87850';
+                }}
+              >
+                🔄 Mejorar
+              </button>
+            </div>
+          )}
+
+          {/* Estado aprobado/rechazado */}
+          {!isPending && (
+            <span
+              style={{
+                fontSize: 7,
+                color: status === 'approved' ? '#50c878' : '#c87850',
+              }}
+            >
+              {status === 'approved' ? '✅ Aprobado' : '🔄 Mejorando...'}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Indicador de typing/working
+function TypingIndicator({ isWorking, workStep }) {
+  const [dots, setDots] = useState('');
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
+    }, 400);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '8px 12px',
+        fontFamily: '"Press Start 2P", monospace',
+        fontSize: 8,
+        color: PALETTE.textDim,
+        animation: 'messageIn 0.3s ease-out',
+      }}
+    >
+      <span style={{ color: STYLES.arqBorder }}>🏗️</span>
+      {isWorking ? (
+        <span>
+          Arq está trabajando{dots}
+          {workStep && (
+            <span style={{ marginLeft: 8, color: PALETTE.accent }}>
+              ⚙️ {workStep.text} ({workStep.current}/{workStep.total})
+            </span>
+          )}
+        </span>
+      ) : (
+        <span>Arq está escribiendo{dots}</span>
+      )}
     </div>
   );
 }

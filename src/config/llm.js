@@ -131,11 +131,12 @@ async function getOllamaModel() {
  * Llama a Ollama (local)
  * @param {string} systemPrompt - System prompt
  * @param {string} userMessage - Mensaje del usuario
- * @param {string} tier - 'fast' para movimiento, 'chat' para conversación
+ * @param {string} tier - 'fast' para movimiento, 'chat' para conversación, 'task' para trabajo
+ * @param {number} maxTokens - Límite de tokens
  */
-async function callOllama(systemPrompt, userMessage, tier = 'fast') {
+async function callOllama(systemPrompt, userMessage, tier = 'fast', maxTokens = 100) {
   // Formato de prompt limpio para Ollama
-  const prompt = tier === 'chat'
+  const prompt = (tier === 'chat' || tier === 'task')
     ? `${systemPrompt}\n\nRodrigo dice: "${userMessage}"\n\nArq responde:`
     : `${systemPrompt}\n\n${userMessage}`;
 
@@ -148,10 +149,10 @@ async function callOllama(systemPrompt, userMessage, tier = 'fast') {
       stream: false,
       options: {
         temperature: 0.7,
-        num_predict: tier === 'chat' ? 150 : 100, // Más tokens para chat
+        num_predict: maxTokens,
       },
     }),
-    signal: AbortSignal.timeout(15000), // 15s timeout
+    signal: AbortSignal.timeout(tier === 'task' ? 30000 : 15000), // 30s para task, 15s normal
   });
 
   if (!response.ok) {
@@ -164,8 +165,9 @@ async function callOllama(systemPrompt, userMessage, tier = 'fast') {
 
 /**
  * Llama a la API de Anthropic
+ * @param {number} maxTokens - Límite de tokens (default según modelo)
  */
-async function callAnthropic(systemPrompt, userMessage, model = 'haiku') {
+async function callAnthropic(systemPrompt, userMessage, model = 'haiku', maxTokens = null) {
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
   if (!apiKey || apiKey === 'tu-api-key-aqui') {
     throw new Error('API Key no configurada');
@@ -174,6 +176,9 @@ async function callAnthropic(systemPrompt, userMessage, model = 'haiku') {
   const modelId = model === 'haiku'
     ? 'claude-3-haiku-20240307'
     : 'claude-3-5-sonnet-20241022';
+
+  // Tokens por defecto según modelo, o usar el valor explícito
+  const tokens = maxTokens || (model === 'haiku' ? 200 : 600);
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -185,7 +190,7 @@ async function callAnthropic(systemPrompt, userMessage, model = 'haiku') {
     },
     body: JSON.stringify({
       model: modelId,
-      max_tokens: model === 'haiku' ? 150 : 500,
+      max_tokens: tokens,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
     }),
@@ -204,7 +209,7 @@ async function callAnthropic(systemPrompt, userMessage, model = 'haiku') {
  * Función principal de pensamiento con fallback chain
  * @param {string} systemPrompt - System prompt
  * @param {string} userMessage - Mensaje del usuario
- * @param {'fast' | 'chat'} tier - Tier de modelo (fast=movimiento, chat=conversación)
+ * @param {'fast' | 'chat' | 'task'} tier - Tier de modelo (fast=movimiento, chat=conversación, task=trabajo largo)
  * @returns {Promise<{response: string, source: string}>}
  */
 export async function think(systemPrompt, userMessage, tier = 'fast') {
@@ -213,9 +218,14 @@ export async function think(systemPrompt, userMessage, tier = 'fast') {
     await initLlm();
   }
 
+  // Tokens según tier
+  const maxTokens = tier === 'task' ? 800 : tier === 'chat' ? 400 : 150;
+  const ollamaTokens = tier === 'task' ? 500 : tier === 'chat' ? 250 : 100;
+
   // Fallback chain: LOCAL SIEMPRE PRIMERO para ambos tiers
   // fast = movimiento (respuestas cortas)
   // chat = conversación (respuestas más elaboradas)
+  // task = trabajo/deliverables (respuestas largas)
   const chain = ['local', 'haiku', 'sonnet', 'fallback'];
 
   for (const source of chain) {
@@ -225,7 +235,7 @@ export async function think(systemPrompt, userMessage, tier = 'fast') {
       switch (source) {
         case 'local':
           if (!llmState.ollamaAvailable || !llmState.ollamaModel) continue;
-          response = await callOllama(systemPrompt, userMessage, tier);
+          response = await callOllama(systemPrompt, userMessage, tier, ollamaTokens);
           if (response && response.trim()) {
             return { response, source: 'local' };
           }
@@ -233,7 +243,7 @@ export async function think(systemPrompt, userMessage, tier = 'fast') {
 
         case 'haiku':
           if (!llmState.apiKeyAvailable) continue;
-          response = await callAnthropic(systemPrompt, userMessage, 'haiku');
+          response = await callAnthropic(systemPrompt, userMessage, 'haiku', maxTokens);
           if (response && response.trim()) {
             return { response, source: 'haiku' };
           }
@@ -241,7 +251,7 @@ export async function think(systemPrompt, userMessage, tier = 'fast') {
 
         case 'sonnet':
           if (!llmState.apiKeyAvailable) continue;
-          response = await callAnthropic(systemPrompt, userMessage, 'sonnet');
+          response = await callAnthropic(systemPrompt, userMessage, 'sonnet', maxTokens);
           if (response && response.trim()) {
             return { response, source: 'sonnet' };
           }

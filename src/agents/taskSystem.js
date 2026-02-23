@@ -304,9 +304,9 @@ export async function processTask(onStepUpdate) {
     + '\n\nCONTEXTO DE TRABAJOS ANTERIORES:\n' + previousTasks
     + '\n\nMEMORIAS RELEVANTES:\n' + memoriesText;
 
-  // Procesar con LLM (tier chat para mejor calidad)
+  // Procesar con LLM (tier task para respuestas largas)
   console.log('[TASK] Procesando con LLM...');
-  const result = await think(fullPrompt, task.description, 'chat');
+  const result = await think(fullPrompt, task.description, 'task');
 
   if (result.source === 'fallback' || !result.response) {
     // Fallback
@@ -414,7 +414,7 @@ export async function reworkTask(onStepUpdate) {
     + '\n\nTu respuesta anterior fue:\n' + (task.deliverable?.content?.slice(0, 200) || '')
     + '\n\nMejora tu respuesta basándote en el feedback.';
 
-  const result = await think(feedbackPrompt, task.description, 'chat');
+  const result = await think(feedbackPrompt, task.description, 'task');
 
   if (result.source !== 'fallback' && result.response) {
     task.deliverable = {

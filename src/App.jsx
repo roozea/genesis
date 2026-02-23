@@ -97,6 +97,7 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [agentStatus, setAgentStatus] = useState('online');
+  const [workStep, setWorkStep] = useState(null); // { text, current, total }
 
   // Contador de memorias
   const [memoryCount, setMemoryCount] = useState(getMemoryCount());
@@ -424,10 +425,117 @@ export default function App() {
     };
   }, [makeDecision]);
 
+  // Handler para aprobar tarea desde botón del chat
+  const handleApproveTask = useCallback(() => {
+    const approvedTask = approveTask();
+    if (approvedTask) {
+      // Actualizar el status del deliverable en los mensajes
+      setMessages(prev => prev.map(msg =>
+        msg.type === 'deliverable' && msg.deliverable?.status === 'review'
+          ? { ...msg, deliverable: { ...msg.deliverable, status: 'approved' } }
+          : msg
+      ));
+
+      // Mostrar recursos flotantes
+      setFloatingRewards(approvedTask.reward);
+
+      // Animación de celebración
+      setAgent(prev => ({ ...prev, state: 'celebrating' }));
+
+      const rewardMsg = getRewardMessage(approvedTask);
+      setMessages(prev => [...prev, { role: 'assistant', content: rewardMsg, timestamp: Date.now() }]);
+      addLog('task', `Aprobado: 📚+${approvedTask.reward.knowledge} 🪨+${approvedTask.reward.materials} ✨+${approvedTask.reward.inspiration}`, '👍');
+
+      // Limpiar después de la animación
+      setTimeout(() => {
+        setFloatingRewards(null);
+        setAgent(prev => ({ ...prev, state: 'idle' }));
+
+        // Procesar destino en cola si hay uno
+        if (queuedDestinationRef.current) {
+          const queued = queuedDestinationRef.current;
+          queuedDestinationRef.current = null;
+          forceDestination(queued.destination, queued.reason);
+          addLog('system', `Ahora voy a ${queued.destination}`, '📍');
+          setTimeout(() => makeDecision(), 100);
+        }
+      }, 2000);
+    }
+  }, [addLog, makeDecision]);
+
+  // Handler para rechazar tarea desde botón del chat
+  const handleRejectTask = useCallback(async () => {
+    // Actualizar el status del deliverable anterior
+    setMessages(prev => prev.map(msg =>
+      msg.type === 'deliverable' && msg.deliverable?.status === 'review'
+        ? { ...msg, deliverable: { ...msg.deliverable, status: 'reworking' } }
+        : msg
+    ));
+
+    // Animación de rascarse la cabeza
+    setAgent(prev => ({ ...prev, state: 'scratching' }));
+
+    rejectTask('Mejorar el resultado');
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: 'Entendido, lo mejoro. Dame un momento... 🔧',
+      timestamp: Date.now(),
+    }]);
+    addLog('task', 'Retrabajando...', '🔄');
+
+    // Delay para mostrar animación de scratching
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    setAgent(prev => ({ ...prev, state: 'building' }));
+    setAgentStatus('working');
+    setWorkProgress(0);
+    setWorkStep({ text: 'Mejorando...', current: 1, total: 1 });
+
+    await reworkTask((step, current, total) => {
+      const progress = total ? Math.round(((current + 1) / total) * 100) : 50;
+      setWorkProgress(progress);
+      setWorkStep({ text: step, current: current + 1, total: total || 1 });
+      setThought(step);
+      setThoughtType('work');
+      addLog('work', step, '⚙️');
+    });
+
+    setThought(null);
+    setThoughtType(null);
+    setWorkProgress(null);
+    setWorkStep(null);
+
+    // Mostrar nuevo resultado
+    setAgent(prev => ({ ...prev, state: 'delivering' }));
+
+    const activeTask = getActiveTask();
+    if (activeTask && activeTask.deliverable) {
+      const deliverableMsg = {
+        type: 'deliverable',
+        timestamp: Date.now(),
+        deliverable: {
+          type: activeTask.type,
+          title: activeTask.title + ' (mejorado)',
+          content: activeTask.deliverable.content,
+          stats: { time: Math.round((activeTask.completedAt - activeTask.createdAt) / 1000) },
+          reward: activeTask.reward,
+          status: 'review',
+        },
+      };
+      setMessages(prev => [...prev, deliverableMsg]);
+    }
+
+    setTimeout(() => {
+      setAgent(prev => ({ ...prev, state: 'idle' }));
+    }, 500);
+
+    setAgentStatus('online');
+  }, [addLog]);
+
   // Enviar mensaje al chat
   const handleSendMessage = useCallback(async (text) => {
-    // Agregar mensaje del usuario
-    const userMessage = { role: 'user', content: text };
+    // Agregar mensaje del usuario con timestamp
+    const userMessage = { role: 'user', content: text, timestamp: Date.now() };
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
     setAgentStatus('thinking');
@@ -441,7 +549,7 @@ export default function App() {
       // ═══ NUEVA TAREA ═══
       if (taskIntent.type === 'new_task') {
         const confirmMsg = getConfirmationMessage(taskIntent);
-        setMessages(prev => [...prev, { role: 'assistant', content: confirmMsg }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: confirmMsg, timestamp: Date.now() }]);
         addLog('task', `Nueva tarea: ${taskIntent.title}`, TASK_TYPES[taskIntent.taskType].icon);
 
         // Crear tarea
@@ -467,6 +575,7 @@ export default function App() {
         await processTask((step, current, total) => {
           const progress = Math.round(((current + 1) / total) * 100);
           setWorkProgress(progress);
+          setWorkStep({ text: step, current: current + 1, total }); // Para el indicador del chat
           setThought(`${step} (${current + 1}/${total})`);
           setThoughtType('work'); // Tipo de thought para estilos
           addLog('work', `Paso ${current + 1}/${total}: ${step}`, '⚙️');
@@ -475,17 +584,27 @@ export default function App() {
         setThought(null);
         setThoughtType(null);
         setWorkProgress(null); // Ocultar barra de progreso
+        setWorkStep(null); // Ocultar indicador del chat
 
         // Mostrar resultado - cambiar a estado delivering (ping)
         setAgent(prev => ({ ...prev, state: 'delivering' }));
 
         const activeTask = getActiveTask();
         if (activeTask && activeTask.deliverable) {
-          const formatted = formatDeliverable(activeTask);
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: formatted + '\n\n¿Te sirve? 🔍',
-          }]);
+          // Crear mensaje de deliverable con formato especial
+          const deliverableMsg = {
+            type: 'deliverable',
+            timestamp: Date.now(),
+            deliverable: {
+              type: activeTask.type,
+              title: activeTask.title,
+              content: activeTask.deliverable.content,
+              stats: { time: Math.round((activeTask.completedAt - activeTask.createdAt) / 1000) },
+              reward: activeTask.reward,
+              status: 'review',
+            },
+          };
+          setMessages(prev => [...prev, deliverableMsg]);
           addLog('task', 'Tarea completada, esperando review', '✅');
         }
 
@@ -502,6 +621,13 @@ export default function App() {
       if (taskIntent.type === 'approve_task') {
         const approvedTask = approveTask();
         if (approvedTask) {
+          // Actualizar el status del deliverable en los mensajes
+          setMessages(prev => prev.map(msg =>
+            msg.type === 'deliverable' && msg.deliverable?.status === 'review'
+              ? { ...msg, deliverable: { ...msg.deliverable, status: 'approved' } }
+              : msg
+          ));
+
           // Mostrar recursos flotantes
           setFloatingRewards(approvedTask.reward);
 
@@ -509,7 +635,7 @@ export default function App() {
           setAgent(prev => ({ ...prev, state: 'celebrating' }));
 
           const rewardMsg = getRewardMessage(approvedTask);
-          setMessages(prev => [...prev, { role: 'assistant', content: rewardMsg }]);
+          setMessages(prev => [...prev, { role: 'assistant', content: rewardMsg, timestamp: Date.now() }]);
           addLog('task', `Aprobado: 📚+${approvedTask.reward.knowledge} 🪨+${approvedTask.reward.materials} ✨+${approvedTask.reward.inspiration}`, '👍');
 
           // Limpiar después de la animación
@@ -535,6 +661,13 @@ export default function App() {
 
       // ═══ RECHAZAR TAREA ═══
       if (taskIntent.type === 'reject_task') {
+        // Actualizar el status del deliverable anterior
+        setMessages(prev => prev.map(msg =>
+          msg.type === 'deliverable' && msg.deliverable?.status === 'review'
+            ? { ...msg, deliverable: { ...msg.deliverable, status: 'reworking' } }
+            : msg
+        ));
+
         // Animación de rascarse la cabeza
         setAgent(prev => ({ ...prev, state: 'scratching' }));
 
@@ -542,6 +675,7 @@ export default function App() {
         setMessages(prev => [...prev, {
           role: 'assistant',
           content: `Entendido, lo mejoro. ${taskIntent.feedback ? 'Tomo nota de tu feedback.' : ''} Dame un momento... 🔧`,
+          timestamp: Date.now(),
         }]);
         addLog('task', 'Retrabajando con feedback...', '🔄');
 
@@ -551,10 +685,12 @@ export default function App() {
         setAgent(prev => ({ ...prev, state: 'building' })); // Estado building para retrabajo
         setAgentStatus('working');
         setWorkProgress(0);
+        setWorkStep({ text: 'Mejorando...', current: 1, total: 1 });
 
         await reworkTask((step, current, total) => {
           const progress = total ? Math.round(((current + 1) / total) * 100) : 50;
           setWorkProgress(progress);
+          setWorkStep({ text: step, current: current + 1, total: total || 1 });
           setThought(step);
           setThoughtType('work');
           addLog('work', step, '⚙️');
@@ -563,17 +699,27 @@ export default function App() {
         setThought(null);
         setThoughtType(null);
         setWorkProgress(null);
+        setWorkStep(null);
 
         // Mostrar nuevo resultado con delivering ping
         setAgent(prev => ({ ...prev, state: 'delivering' }));
 
         const activeTask = getActiveTask();
         if (activeTask && activeTask.deliverable) {
-          const formatted = formatDeliverable(activeTask);
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: formatted + '\n\n¿Ahora sí? 🔍',
-          }]);
+          // Crear nuevo deliverable message
+          const deliverableMsg = {
+            type: 'deliverable',
+            timestamp: Date.now(),
+            deliverable: {
+              type: activeTask.type,
+              title: activeTask.title + ' (mejorado)',
+              content: activeTask.deliverable.content,
+              stats: { time: Math.round((activeTask.completedAt - activeTask.createdAt) / 1000) },
+              reward: activeTask.reward,
+              status: 'review',
+            },
+          };
+          setMessages(prev => [...prev, deliverableMsg]);
         }
 
         setTimeout(() => {
@@ -605,7 +751,7 @@ export default function App() {
           '*se rasca el casco* No logro concentrarme. Debe ser el clima de Genesis 🌀',
         ];
         const randomMsg = fallbackMessages[Math.floor(Math.random() * fallbackMessages.length)];
-        const errorMessage = { role: 'assistant', content: randomMsg };
+        const errorMessage = { role: 'assistant', content: randomMsg, timestamp: Date.now() };
         setMessages(prev => [...prev, errorMessage]);
         addLog('fallback', 'Arq está confundido', '🔧');
         setIsLoading(false);
@@ -618,7 +764,7 @@ export default function App() {
       setStats(prev => ({ ...prev, iaCalls: newIaCalls }));
 
       // Agregar respuesta
-      const assistantMessage = { role: 'assistant', content: result.response };
+      const assistantMessage = { role: 'assistant', content: result.response, timestamp: Date.now() };
       setMessages(prev => [...prev, assistantMessage]);
 
       // Log con la fuente correcta (local, haiku, sonnet)
@@ -691,7 +837,7 @@ export default function App() {
 
     } catch (error) {
       console.error('[App] Error en chat:', error);
-      const errorMessage = { role: 'assistant', content: '*se frota las sienes* Perdí el hilo... ¿qué decías? 🤔' };
+      const errorMessage = { role: 'assistant', content: '*se frota las sienes* Perdí el hilo... ¿qué decías? 🤔', timestamp: Date.now() };
       setMessages(prev => [...prev, errorMessage]);
       addLog('fallback', 'Arq perdió concentración', '🔧');
     }
@@ -766,6 +912,9 @@ export default function App() {
           onSendMessage={handleSendMessage}
           isLoading={isLoading}
           agentStatus={agentStatus}
+          workStep={workStep}
+          onApproveTask={handleApproveTask}
+          onRejectTask={handleRejectTask}
         />
       </main>
 
