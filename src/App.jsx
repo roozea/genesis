@@ -762,6 +762,28 @@ export default function App() {
 
       // ═══ RECHAZAR TAREA ═══
       if (taskIntent.type === 'reject_task') {
+        // Intentar rechazar la tarea
+        const rejectedTask = rejectTask(taskIntent.feedback);
+
+        // Verificar si se alcanzó el máximo de reintentos
+        if (rejectedTask?.maxRetriesReached) {
+          setMessages(prev => prev.map(msg =>
+            msg.type === 'deliverable' && msg.deliverable?.status === 'review'
+              ? { ...msg, deliverable: { ...msg.deliverable, status: 'abandoned' } }
+              : msg
+          ));
+
+          setAgent(prev => ({ ...prev, state: 'idle' }));
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `*se quita el casco y suspira* Lo siento, después de 2 intentos no logré darte lo que necesitas. Esta tarea queda sin completar. Quizás podamos intentar de otra forma o dividirla en partes más pequeñas. 😔`,
+            timestamp: Date.now(),
+          }]);
+          addLog('task', 'Tarea abandonada - máximo de reintentos', '❌');
+          setAgentStatus('idle');
+          return;
+        }
+
         // Actualizar el status del deliverable anterior
         setMessages(prev => prev.map(msg =>
           msg.type === 'deliverable' && msg.deliverable?.status === 'review'
@@ -772,13 +794,12 @@ export default function App() {
         // Animación de rascarse la cabeza
         setAgent(prev => ({ ...prev, state: 'scratching' }));
 
-        rejectTask(taskIntent.feedback);
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `Entendido, lo mejoro. ${taskIntent.feedback ? 'Tomo nota de tu feedback.' : ''} Dame un momento... 🔧`,
+          content: `Entendido, lo mejoro (intento ${rejectedTask.retryCount}/2). ${taskIntent.feedback ? 'Tomo nota de tu feedback.' : ''} Dame un momento... 🔧`,
           timestamp: Date.now(),
         }]);
-        addLog('task', 'Retrabajando con feedback...', '🔄');
+        addLog('task', `Retrabajando con feedback... (intento ${rejectedTask.retryCount}/2)`, '🔄');
 
         // Delay para mostrar animación de scratching
         await new Promise(resolve => setTimeout(resolve, 800));

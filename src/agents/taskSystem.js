@@ -6,18 +6,26 @@ import { addMemory, MEMORY_TYPES, retrieveMemories } from './memory';
 import { forceDestination, getWorldState, updateWorldState } from './worldState';
 
 // Tipos de tarea y configuración
+// NOTA: {fecha_hora} se inyecta automáticamente en processTask
 export const TASK_TYPES = {
   research: {
     icon: '🔍',
     name: 'Investigación',
     prompt: `Eres Arq, asistente de investigación.
+{fecha_hora}
+
 Rodrigo necesita: {descripción}
 
 Investiga el tema usando tu conocimiento. Organiza así:
 1. RESUMEN (2-3 oraciones, lo esencial)
 2. PUNTOS CLAVE (3-5 puntos importantes)
 3. EJEMPLO PRÁCTICO (si aplica, código o caso real)
-4. LO QUE NO SÉ (honesto sobre limitaciones)
+4. LIMITACIONES (sé HONESTO: si no sabes algo actual, si tu conocimiento tiene fecha de corte, si necesitas acceso a internet que no tienes, DILO CLARAMENTE)
+
+IMPORTANTE SOBRE TU CONOCIMIENTO:
+- Tu conocimiento tiene fecha de corte. Si preguntan sobre eventos recientes, noticias, precios actuales, o información que cambia frecuentemente, ADMITE que no tienes datos actualizados.
+- NO inventes información que no sabes. Es mejor decir "no sé" que inventar.
+- Si el tema requiere acceso a internet o datos en tiempo real, explica que no puedes acceder a eso.
 
 Responde en español, directo, sin relleno.`,
     reward: { knowledge: 5, materials: 2, inspiration: 3 },
@@ -28,6 +36,8 @@ Responde en español, directo, sin relleno.`,
     icon: '💻',
     name: 'Código',
     prompt: `Eres Arq, asistente de programación.
+{fecha_hora}
+
 Rodrigo necesita: {descripción}
 
 Responde con:
@@ -35,6 +45,8 @@ Responde con:
 2. EXPLICACIÓN (qué hace cada parte importante, breve)
 3. ALTERNATIVAS (si hay otra forma mejor, menciónala)
 4. CUIDADO (posibles bugs o edge cases)
+
+IMPORTANTE: Si el código depende de APIs externas, versiones específicas de librerías, o configuración del sistema, menciona las dependencias y posibles incompatibilidades.
 
 Código en bloques con lenguaje indicado. Español para explicaciones.`,
     reward: { knowledge: 3, materials: 5, inspiration: 2 },
@@ -45,6 +57,8 @@ Código en bloques con lenguaje indicado. Español para explicaciones.`,
     icon: '📋',
     name: 'Planificación',
     prompt: `Eres Arq, asistente de planificación.
+{fecha_hora}
+
 Rodrigo quiere pensar sobre: {descripción}
 
 Ayúdale a estructurar:
@@ -53,7 +67,8 @@ Ayúdale a estructurar:
 3. RECOMENDACIÓN (cuál elegirías y por qué)
 4. PASOS SIGUIENTES (3-5 acciones concretas)
 
-Sé directo. Si algo no está claro, pregunta.`,
+Sé directo. Si algo no está claro, pregunta.
+Si necesitas información que no tienes (precios, disponibilidad, datos actuales), indícalo.`,
     reward: { knowledge: 4, materials: 2, inspiration: 5 },
     workSteps: ['Entendiendo el problema...', 'Evaluando opciones...', 'Armando el plan...'],
   },
@@ -62,6 +77,8 @@ Sé directo. Si algo no está claro, pregunta.`,
     icon: '🔎',
     name: 'Revisión',
     prompt: `Eres Arq, revisor técnico.
+{fecha_hora}
+
 Rodrigo quiere que revises: {descripción}
 
 Evalúa con:
@@ -75,6 +92,23 @@ Sé honesto pero constructivo. No rellenes.`,
     workSteps: ['Leyendo el material...', 'Analizando...', 'Preparando feedback...'],
   },
 };
+
+/**
+ * Genera string de fecha y hora actual para inyectar en prompts
+ */
+function getCurrentDateTime() {
+  const now = new Date();
+  const options = {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  };
+  return `Fecha y hora actual: ${now.toLocaleDateString('es-MX', options)}`;
+}
 
 // Estado de tareas
 let taskState = {
@@ -163,16 +197,25 @@ export function spendResources(cost) {
 
 /**
  * Extrae el tema del mensaje después del verbo trigger
+ * NOTA: Ahora usamos el mensaje completo, truncado solo para display
  */
-function extractTopic(msg, triggerWords) {
-  for (const word of triggerWords) {
-    const idx = msg.indexOf(word);
-    if (idx !== -1) {
-      const after = msg.slice(idx + word.length).trim();
-      return after.replace(/^(sobre|de|el|la|los|las|un|una|cómo|qué)\s+/i, '').trim() || msg;
-    }
-  }
-  return msg;
+function extractTopic(userMsg) {
+  // Limpiar inicio con verbos comunes pero mantener el tema completo
+  let topic = userMsg
+    .replace(/^(investiga|busca|explica|codea|programa|implementa|arregla|planea|piensa|diseña|organiza|estructura|revisa|evalúa|checa)\s*/i, '')
+    .replace(/^(sobre|de|el|la|los|las|un|una)\s+/i, '')
+    .trim();
+
+  return topic || userMsg;
+}
+
+/**
+ * Genera un título corto para display (max 40 chars)
+ */
+function generateTitle(prefix, userMsg) {
+  const topic = extractTopic(userMsg);
+  const truncated = topic.length > 35 ? topic.slice(0, 35) + '...' : topic;
+  return `${prefix}: ${truncated}`;
 }
 
 /**
@@ -183,44 +226,40 @@ export function parseTaskIntent(userMsg) {
 
   // ═══ INVESTIGACIÓN ═══
   if (msg.match(/investiga|busca|que es|como funciona|explica|averigua|dime sobre|que sabes de/)) {
-    const topic = extractTopic(msg, ['investiga', 'busca', 'explica', 'averigua', 'dime sobre']);
     return {
       type: 'new_task',
       taskType: 'research',
-      title: `Investigar: ${topic.slice(0, 40)}`,
-      description: userMsg,
+      title: generateTitle('Investigar', userMsg),
+      description: userMsg, // Mensaje COMPLETO para el prompt
     };
   }
 
   // ═══ CÓDIGO ═══
   if (msg.match(/codigo|codea|programa|funcion|componente|script|debug|fix|arregla|implementa/)) {
-    const topic = extractTopic(msg, ['codigo', 'codea', 'programa', 'implementa', 'arregla']);
     return {
       type: 'new_task',
       taskType: 'code',
-      title: `Código: ${topic.slice(0, 40)}`,
+      title: generateTitle('Código', userMsg),
       description: userMsg,
     };
   }
 
   // ═══ PLANIFICACIÓN ═══
   if (msg.match(/planea|piensa|ayudame a pensar|estructura|organiza|como deberia|que opinas de|disena|arquitectura/)) {
-    const topic = extractTopic(msg, ['planea', 'piensa', 'disena', 'organiza', 'estructura']);
     return {
       type: 'new_task',
       taskType: 'plan',
-      title: `Plan: ${topic.slice(0, 40)}`,
+      title: generateTitle('Plan', userMsg),
       description: userMsg,
     };
   }
 
   // ═══ REVISIÓN ═══
   if (msg.match(/revisa|review|evalua|que piensas de|feedback|esta bien|checa/)) {
-    const topic = extractTopic(msg, ['revisa', 'evalua', 'checa', 'review']);
     return {
       type: 'new_task',
       taskType: 'review',
-      title: `Review: ${topic.slice(0, 40)}`,
+      title: generateTitle('Review', userMsg),
       description: userMsg,
     };
   }
@@ -311,8 +350,9 @@ export async function processTask(onStepUpdate) {
     await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1000));
   }
 
-  // Construir prompt completo
+  // Construir prompt completo con fecha/hora inyectada
   const fullPrompt = taskType.prompt
+    .replace('{fecha_hora}', getCurrentDateTime())
     .replace('{descripción}', task.description)
     + '\n\nCONTEXTO DE TRABAJOS ANTERIORES:\n' + previousTasks
     + '\n\nMEMORIAS RELEVANTES:\n' + memoriesText;
@@ -380,33 +420,66 @@ export function approveTask() {
 }
 
 /**
- * Rechaza la tarea y permite retrabajarla
+ * Máximo de reintentos permitidos
+ */
+const MAX_RETRIES = 2;
+
+/**
+ * Rechaza la tarea y permite retrabajarla (max 2 reintentos)
  */
 export function rejectTask(feedback) {
   const task = taskState.activeTask;
   if (!task || task.status !== 'review') return null;
 
+  const currentRetries = task.retryCount || 0;
+
+  // Verificar si ya se agotaron los reintentos
+  if (currentRetries >= MAX_RETRIES) {
+    console.log('[TASK] Máximo de reintentos alcanzado, cerrando tarea sin aprobar');
+    task.deliverable.approved = false;
+    task.status = 'abandoned';
+
+    // Guardar memoria de fracaso
+    addMemory(
+      MEMORY_TYPES.THOUGHT,
+      `No logré completar "${task.title}" satisfactoriamente después de ${MAX_RETRIES} intentos. Debo aprender de esto.`,
+      'workshop',
+      10
+    );
+
+    // Mover a historial sin recursos
+    taskState.taskHistory.push({ ...task });
+    taskState.activeTask = null;
+
+    saveTaskState();
+    notifyListeners();
+
+    return { ...task, maxRetriesReached: true };
+  }
+
+  // Guardar respuesta anterior completa para contexto
+  task.previousResponse = task.deliverable?.content || '';
   task.deliverable.approved = false;
   task.status = 'in_progress';
   task.feedback = feedback;
-  task.retryCount = (task.retryCount || 0) + 1;
+  task.retryCount = currentRetries + 1;
 
   // Guardar memoria de aprendizaje
   addMemory(
     MEMORY_TYPES.THOUGHT,
-    `Mi trabajo sobre "${task.title}" necesitó mejoras. Rodrigo dijo: "${feedback?.slice(0, 50)}". Debo hacerlo diferente.`,
+    `Mi trabajo sobre "${task.title}" necesitó mejoras (intento ${task.retryCount}/${MAX_RETRIES}). Rodrigo dijo: "${feedback?.slice(0, 50)}". Debo hacerlo diferente.`,
     'workshop',
     9
   );
 
   notifyListeners();
 
-  console.log('[TASK] Tarea rechazada, retrabajando...');
+  console.log(`[TASK] Tarea rechazada, retrabajando... (intento ${task.retryCount}/${MAX_RETRIES})`);
   return task;
 }
 
 /**
- * Retrabaja la tarea con feedback
+ * Retrabaja la tarea con feedback (incluye respuesta anterior completa)
  */
 export async function reworkTask(onStepUpdate) {
   const task = taskState.activeTask;
@@ -416,16 +489,28 @@ export async function reworkTask(onStepUpdate) {
 
   // Paso de mejora
   if (onStepUpdate) {
-    onStepUpdate('Mejorando basado en feedback...', 0, 1);
+    onStepUpdate(`Mejorando basado en feedback... (intento ${task.retryCount}/${MAX_RETRIES})`, 0, 1);
   }
   await new Promise(resolve => setTimeout(resolve, 2000));
 
-  // Prompt con feedback
-  const feedbackPrompt = taskType.prompt
-    .replace('{descripción}', task.description)
-    + '\n\nFEEDBACK DE RODRIGO (IMPORTANTE - incorpora esto):\n' + (task.feedback || 'Mejorar el resultado')
-    + '\n\nTu respuesta anterior fue:\n' + (task.deliverable?.content?.slice(0, 200) || '')
-    + '\n\nMejora tu respuesta basándote en el feedback.';
+  // Usar respuesta anterior completa guardada en rejectTask
+  const previousResponse = task.previousResponse || task.deliverable?.content || '';
+
+  // Prompt con feedback Y respuesta anterior COMPLETA (con fecha/hora inyectada)
+  const feedbackPrompt = `${taskType.prompt.replace('{fecha_hora}', getCurrentDateTime()).replace('{descripción}', task.description)}
+
+═══ IMPORTANTE: FEEDBACK DE RODRIGO ═══
+${task.feedback || 'El usuario pidió mejorar el resultado, pero no especificó qué cambiar.'}
+
+═══ TU RESPUESTA ANTERIOR (QUE DEBES MEJORAR) ═══
+${previousResponse}
+
+═══ INSTRUCCIONES ═══
+1. LEE el feedback cuidadosamente
+2. IDENTIFICA qué específicamente no gustó de tu respuesta anterior
+3. GENERA una respuesta DIFERENTE que incorpore el feedback
+4. NO repitas la misma respuesta - debe ser notablemente diferente
+5. Este es tu intento ${task.retryCount} de ${MAX_RETRIES} - hazlo bien`;
 
   const result = await think(feedbackPrompt, task.description, 'task');
 
@@ -459,11 +544,21 @@ export function formatDeliverable(task) {
   // Contenido
   formatted += task.deliverable.content;
 
-  // Footer con recompensa pendiente
+  // Footer con recompensa
   formatted += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
   formatted += `⏱️ ${Math.round((task.completedAt - task.createdAt) / 1000)}s`;
-  formatted += `  📚+${reward.knowledge} 🪨+${reward.materials} ✨+${reward.inspiration}`;
-  formatted += task.deliverable.approved === null ? ' (pendiente)' : task.deliverable.approved ? ' ✅' : ' 🔄';
+
+  // Mostrar recompensa según estado de aprobación
+  if (task.deliverable.approved === true) {
+    // APROBADA: Recursos ganados
+    formatted += `  ✅ GANADO: 📚+${reward.knowledge} 🪨+${reward.materials} ✨+${reward.inspiration}`;
+  } else if (task.deliverable.approved === false) {
+    // RECHAZADA: Retrabajando
+    formatted += `  🔄 Mejorando... (recompensa pendiente)`;
+  } else {
+    // PENDIENTE: Esperando aprobación - NO muestra como ganados
+    formatted += `  ⏳ Si apruebas: 📚+${reward.knowledge} 🪨+${reward.materials} ✨+${reward.inspiration}`;
+  }
 
   return formatted;
 }
