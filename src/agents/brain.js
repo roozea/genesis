@@ -20,9 +20,9 @@ import { LOCATIONS, getLocationKeys, getLocation, getNearestLocation } from '../
  * @returns {Promise<{destination: string, thought: string, mood: string, source: string} | null>}
  */
 export async function decideNextMove(currentLocation, lastLocations, mood, lastChatMessage) {
-  // Recuperar memorias relevantes para la decisión
-  const context = `decidiendo moverse desde ${currentLocation} mood ${mood} ${lastChatMessage || ''}`;
-  const relevantMemories = retrieveMemories(context, 5);
+  // Recuperar memorias relevantes para la decisión (top 3)
+  const context = `En ${currentLocation}, mood ${mood}, ${lastChatMessage || 'sin chat'}`;
+  const relevantMemories = retrieveMemories(context, 3);
   const memoriesText = formatMemoriesForPrompt(relevantMemories);
 
   // Generar prompt con memorias
@@ -86,52 +86,35 @@ export async function decideNextMove(currentLocation, lastLocations, mood, lastC
 /**
  * Crea una memoria cuando Arq llega a un lugar
  * @param {string} locationKey - Clave del lugar
+ * @returns {object} La memoria creada
  */
 export function recordArrival(locationKey) {
   const location = LOCATIONS[locationKey];
-  if (!location) return;
+  if (!location) return null;
 
+  // Memoria simple: "Caminé al {nombre del lugar}"
+  const content = `Caminé al ${location.name}`;
+
+  // Importancia base 3, primera visita 5
   const visitCount = getVisitCount(locationKey);
-  const description = getPlaceDescription(locationKey);
+  const importance = visitCount === 0 ? 5 : 3;
 
-  // Primera visita es más importante
-  const importance = visitCount === 0 ? 7 : visitCount < 3 ? 5 : 3;
-
-  // Crear memoria de acción
-  const content = visitCount === 0
-    ? `Llegué a ${description} por primera vez`
-    : `Llegué a ${description}`;
-
-  addMemory(MEMORY_TYPES.ACTION, content, locationKey, importance);
-
-  // Cada 2-3 visitas, generar un pensamiento sobre el lugar
-  if (visitCount > 0 && visitCount % 2 === 0) {
-    generateThoughtAboutPlace(locationKey, visitCount);
-  }
+  return addMemory(MEMORY_TYPES.ACTION, content, locationKey, importance);
 }
 
 /**
- * Genera un pensamiento sobre un lugar (no bloqueante)
+ * Guarda un pensamiento (thought bubble) como memoria
+ * @param {string} thought - El pensamiento a guardar
+ * @param {string} locationKey - Ubicación donde ocurrió
+ * @returns {object} La memoria creada
  */
-async function generateThoughtAboutPlace(locationKey, visitCount) {
-  const location = LOCATIONS[locationKey];
-  if (!location) return;
+export function recordThought(thought, locationKey) {
+  if (!thought || thought.length < 3) return null;
 
-  try {
-    const prompt = `Eres Arq. Has visitado "${location.name}" ${visitCount} veces.
-Genera UN pensamiento corto (máximo 10 palabras) sobre este lugar.
-Puede ser una observación, opinión, o pregunta.
-Responde SOLO el pensamiento, sin comillas.`;
+  // Limpiar el pensamiento (quitar comillas, etc)
+  const cleanThought = thought.replace(/^["']|["']$/g, '').trim();
 
-    const result = await think(prompt, 'Piensa.', 'fast');
-
-    if (result.response && result.source !== 'fallback') {
-      const thought = result.response.trim().slice(0, 80);
-      addMemory(MEMORY_TYPES.THOUGHT, thought, locationKey, 4);
-    }
-  } catch (error) {
-    console.warn('[brain] Error generando pensamiento:', error);
-  }
+  return addMemory(MEMORY_TYPES.THOUGHT, cleanThought, locationKey, 4);
 }
 
 /**
@@ -143,29 +126,36 @@ export function recordObservation(content, locationKey, importance = 4) {
 
 /**
  * Crea una memoria de conversación
+ * @param {string} userMessage - Lo que dijo Rodrigo
+ * @param {string} arqResponse - Lo que respondió Arq
+ * @param {string} locationKey - Ubicación donde ocurrió
+ * @returns {object} La memoria creada
  */
 export function recordConversation(userMessage, arqResponse, locationKey) {
-  // Resumir la conversación
-  const summary = `Hablé con Rodrigo: "${userMessage.slice(0, 40)}..." → Respondí sobre ${extractTopic(arqResponse)}`;
-  addMemory(MEMORY_TYPES.CONVERSATION, summary, locationKey, 6);
+  // Extraer tema: primeras 5 palabras de la respuesta de Arq
+  const tema = extractTopic(arqResponse);
+
+  // Formato: Rodrigo dijo: "..." — Le respondí sobre {tema}
+  const content = `Rodrigo dijo: "${userMessage.slice(0, 40)}" — Le respondí sobre ${tema}`;
+
+  return addMemory(MEMORY_TYPES.CONVERSATION, content, locationKey, 6);
 }
 
 /**
- * Extrae el tema principal de una respuesta (simple)
+ * Extrae el tema de una respuesta (primeras 5 palabras)
  */
 function extractTopic(text) {
-  // Buscar sustantivos/temas comunes
-  const topics = [
-    'el edificio', 'el taller', 'el jardín', 'el lago', 'los agentes',
-    'construir', 'explorar', 'el mapa', 'el futuro', 'las flores',
-    'el camino', 'el bosque', 'el misterio', 'la puerta',
-  ];
+  if (!text) return 'algo';
 
-  const lower = text.toLowerCase();
-  for (const topic of topics) {
-    if (lower.includes(topic)) return topic;
-  }
-  return 'varios temas';
+  // Limpiar y tomar primeras 5 palabras
+  const words = text
+    .replace(/[*_~`]/g, '') // Quitar formato markdown
+    .split(/\s+/)
+    .filter(w => w.length > 0)
+    .slice(0, 5)
+    .join(' ');
+
+  return words || 'algo';
 }
 
 /**

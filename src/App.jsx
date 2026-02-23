@@ -12,8 +12,10 @@ import {
   retrieveMemories,
   formatMemoriesForPrompt,
   getVisitedLocationsToday,
+  getMemoryCount,
+  onMemoryAdded,
 } from './agents/memory';
-import { recordArrival, recordConversation } from './agents/brain';
+import { recordArrival, recordConversation, recordThought } from './agents/brain';
 import { LOCATIONS } from './world/locations';
 import GameMap from './world/GameMap';
 import Header from './ui/Header';
@@ -48,6 +50,9 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [agentStatus, setAgentStatus] = useState('online');
 
+  // Contador de memorias
+  const [memoryCount, setMemoryCount] = useState(getMemoryCount());
+
   // Refs para intervalos
   const moveIntervalRef = useRef(null);
   const isWalkingRef = useRef(false);
@@ -69,6 +74,23 @@ export default function App() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Suscribirse a nuevas memorias para actualizar contador y log
+  useEffect(() => {
+    const unsubscribe = onMemoryAdded((memory) => {
+      // Actualizar contador
+      setMemoryCount(getMemoryCount());
+
+      // Agregar al Activity Log (solo si no es core memory)
+      if (memory.type !== 'core') {
+        const truncatedContent = memory.content.length > 35
+          ? memory.content.slice(0, 35) + '...'
+          : memory.content;
+        addLog('memory', `${truncatedContent} (imp: ${memory.importance})`, '🧠');
+      }
+    });
+    return unsubscribe;
+  }, [addLog]);
 
   // Caminar paso a paso por el path
   const walkPath = useCallback(async (path, finalThought, startPos, destinationKey) => {
@@ -103,9 +125,11 @@ export default function App() {
       recordArrival(destinationKey);
     }
 
-    // Mostrar thought bubble
+    // Mostrar thought bubble y guardarlo como memoria
     if (finalThought) {
       setThought(finalThought);
+      // Guardar el pensamiento como memoria
+      recordThought(finalThought, destinationKey);
       setTimeout(() => setThought(null), 4000);
     }
   }, []);
@@ -190,9 +214,8 @@ export default function App() {
     addLog('chat', `Tú: ${text.slice(0, 30)}...`, '💬');
 
     try {
-      // Recuperar memorias relevantes para el chat
-      const chatContext = `conversando sobre ${text.slice(0, 50)} en ${currentLocation}`;
-      const relevantMemories = retrieveMemories(chatContext, 5);
+      // Recuperar memorias relevantes basadas en lo que preguntó el usuario
+      const relevantMemories = retrieveMemories(text, 5);
       const memoriesText = formatMemoriesForPrompt(relevantMemories);
       const visitedToday = getVisitedLocationsToday();
 
@@ -270,6 +293,7 @@ export default function App() {
         location={currentLocation}
         iaCalls={stats.iaCalls}
         elapsedTime={elapsedTime}
+        memoryCount={memoryCount}
       />
 
       {/* Contenido principal */}

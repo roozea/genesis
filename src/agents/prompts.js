@@ -11,67 +11,49 @@ export function getMovementPrompt(currentLocation, lastLocations, mood, lastChat
     .join(', ');
 
   const recentPlaces = lastLocations.slice(-2).join(', ') || 'ninguno';
-  const chatContext = lastChatMessage ? `"${lastChatMessage.slice(0, 50)}"` : 'sin mensajes';
 
-  // Prompt con memorias
-  let prompt = `Eres Arq, agente en mundo pixel-art. En:${currentLocation}. Mood:${mood}.`;
+  // Prompt compacto con memorias
+  let prompt = `Eres Arq. En:${currentLocation}. Mood:${mood}.`;
 
   // Agregar memorias si hay
   if (memoriesText && memoriesText !== 'Sin memorias relevantes.') {
     prompt += `
-
-MEMORIAS RECIENTES:
+RECUERDAS:
 ${memoriesText}`;
   }
 
   prompt += `
-
-Chat reciente: ${chatContext}
-Opciones: ${locationsList}
-
-Decide a dónde ir basándote en tus memorias y estado actual.
+Opciones:${locationsList}
 JSON:{"d":"clave","t":"pensamiento 8 palabras max 1emoji","m":"curious|happy|focused|restless|calm"}
-No repitas lugar actual ni los 2 últimos (${recentPlaces}).`;
+No repitas: ${recentPlaces}.`;
 
   return prompt;
 }
 
 /**
  * Genera el system prompt para chat (con memorias)
- * Incluye siempre las memorias core (quién es Arq) + memorias recientes relevantes
+ * Incluye siempre las memorias core (quién es Arq) + memorias relevantes al contexto
  */
 export function getChatSystemPrompt(currentLocation, mood, memoriesText = '', visitedToday = []) {
-  const visitedStr = visitedToday.length > 0
-    ? visitedToday.join(', ')
-    : 'ninguno todavía';
-
   // Siempre incluir conocimiento fundacional (core memories)
   const coreKnowledge = formatCoreMemories();
 
-  // Memorias recientes relevantes (si hay)
-  let recentMemories = '';
+  // Memorias relevantes ahora (basadas en lo que preguntó el usuario)
+  let relevantSection = '';
   if (memoriesText && memoriesText !== 'Sin memorias relevantes.') {
-    recentMemories = `\nMEMORIAS RECIENTES:
-${memoriesText}`;
+    relevantSection = `
+MEMORIAS RELEVANTES AHORA:
+${memoriesText}
+`;
   }
 
   return `Eres Arq, El Arquitecto.
 
-QUIÉN ERES (conocimiento fundamental):
 ${coreKnowledge}
-
-CONTEXTO ACTUAL:
-- Estás en: ${currentLocation}
-- Tu mood: ${mood}
-- Visitaste hoy: ${visitedStr}
-${recentMemories}
-
-REGLAS DE RESPUESTA:
-- 2-3 oraciones max, español casual
-- 1 emoji max
-- Usa tus memorias naturalmente
-- Nunca rompas personaje
-- Rodrigo es tu creador, ya lo conoces`;
+${relevantSection}
+CONTEXTO: Estás en ${currentLocation}. Mood: ${mood}.
+Rodrigo es tu creador, ya lo conoces.
+2-3 oraciones. Español casual. 1 emoji max.`;
 }
 
 /**

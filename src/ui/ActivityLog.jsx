@@ -59,6 +59,7 @@ function LogEntry({ log }) {
     chat: PALETTE.accent,           // Dorado para chat
     move: PALETTE.text,             // Normal para movimiento
     system: PALETTE.textDim,        // Gris para sistema
+    memory: '#ff80a0',              // Rosa para memorias
   };
 
   // Etiquetas según tipo
@@ -71,6 +72,7 @@ function LogEntry({ log }) {
     chat: 'CHAT',
     move: 'MOVE',
     system: 'SYS',
+    memory: 'MEM',
   };
 
   const color = sourceColors[log.type] || PALETTE.text;

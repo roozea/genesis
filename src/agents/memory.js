@@ -68,6 +68,35 @@ export function saveMemories(memories) {
 }
 
 /**
+ * Obtiene el número total de memorias
+ * @returns {number} Cantidad de memorias
+ */
+export function getMemoryCount() {
+  const memories = loadMemories();
+  return memories.length;
+}
+
+// Listeners para cambios en memorias
+const memoryListeners = new Set();
+
+/**
+ * Registra un listener para cuando se agregan memorias
+ * @param {function} callback - Función a llamar con la nueva memoria
+ * @returns {function} Función para desuscribirse
+ */
+export function onMemoryAdded(callback) {
+  memoryListeners.add(callback);
+  return () => memoryListeners.delete(callback);
+}
+
+/**
+ * Notifica a los listeners que se agregó una memoria
+ */
+function notifyMemoryAdded(memory) {
+  memoryListeners.forEach(cb => cb(memory));
+}
+
+/**
  * Agrega una nueva memoria al stream
  * @param {string} type - Tipo de memoria (MEMORY_TYPES)
  * @param {string} content - Contenido de la memoria
@@ -118,7 +147,10 @@ export function addMemory(type, content, location, importance = 5) {
   }
 
   saveMemories(memories);
-  console.log(`[memory] Nueva memoria: [${type}] ${content.slice(0, 50)}...`);
+
+  // Notificar a los listeners
+  notifyMemoryAdded(memory);
+
   return memory;
 }
 

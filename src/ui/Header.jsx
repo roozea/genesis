@@ -5,7 +5,7 @@ import { MOOD_EMOJI } from '../agents/prompts';
 import { LOCATIONS } from '../world/locations';
 import { onStateChange } from '../config/llm';
 
-export default function Header({ level, xp, mood, location, iaCalls, elapsedTime }) {
+export default function Header({ level, xp, mood, location, iaCalls, elapsedTime, memoryCount = 0 }) {
   const [llmState, setLlmState] = useState({ currentSource: 'checking' });
 
   // Suscribirse a cambios del estado LLM
@@ -72,6 +72,12 @@ export default function Header({ level, xp, mood, location, iaCalls, elapsedTime
         >
           <span>{source.emoji}</span>
           <span style={{ color: source.color, fontSize: 8 }}>{source.label}</span>
+        </div>
+
+        {/* Contador de memorias */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span>🧠</span>
+          <span style={{ color: PALETTE.accent }}>{memoryCount}</span>
         </div>
 
         {/* Nivel con barra de XP */}
