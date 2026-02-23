@@ -20,6 +20,10 @@ import {
   forceDestination,
   enableExploreMode,
   recordAction,
+  stopAndPause,
+  areDecisionsPaused,
+  shouldCancelPath,
+  clearCancelFlag,
 } from './worldState';
 
 // ============================================
@@ -62,14 +66,24 @@ const PLACE_KEYWORDS = {
 export function parseIntent(userMsg) {
   const msg = userMsg.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  // Detectar petición de ir a un lugar
-  const goVerbs = ['ve ', 'ir ', 'anda ', 'camina ', 'visita ', 'explora ', 'pasa por'];
+  console.log('[INTENT] Parseando mensaje:', msg);
+
+  // PRIORIDAD 1: Detectar comando de parar
+  const stopWords = ['detente', 'para', 'stop', 'espera', 'quedate', 'no te muevas', 'alto', 'pausa'];
+  if (stopWords.some(w => msg.includes(w))) {
+    console.log('[INTENT] Detectado: STOP');
+    return { type: 'stop' };
+  }
+
+  // PRIORIDAD 2: Detectar petición de ir a un lugar
+  const goVerbs = ['ve ', 've al', 'ir ', 'anda ', 'camina ', 'visita ', 'pasa por', 'dirigete', 'vamos al'];
   const hasGoVerb = goVerbs.some(v => msg.includes(v));
 
   if (hasGoVerb) {
     for (const [word, key] of Object.entries(PLACE_KEYWORDS)) {
       const normalWord = word.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       if (msg.includes(normalWord)) {
+        console.log('[INTENT] Detectado: GO_TO', key);
         return { type: 'go_to', destination: key };
       }
     }
@@ -83,6 +97,7 @@ export function parseIntent(userMsg) {
     for (const [word, key] of Object.entries(PLACE_KEYWORDS)) {
       const normalWord = word.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       if (msg.includes(normalWord)) {
+        console.log('[INTENT] Detectado: DESCRIBE', key);
         return { type: 'describe', place: key };
       }
     }
@@ -90,10 +105,12 @@ export function parseIntent(userMsg) {
 
   // Detectar petición de explorar en general
   if (msg.includes('explora') || msg.includes('investiga') || msg.includes('descubre') || msg.includes('busca')) {
+    console.log('[INTENT] Detectado: EXPLORE');
     return { type: 'explore' };
   }
 
   // Solo conversación
+  console.log('[INTENT] Detectado: CHAT (conversación normal)');
   return { type: 'chat' };
 }
 
@@ -101,8 +118,25 @@ export function parseIntent(userMsg) {
  * Procesa la intención detectada y actualiza el worldState
  * @param {object} intent - Intención parseada
  * @param {string} currentLocation - Ubicación actual
+ * @returns {string|false} - Tipo de acción procesada o false si no hubo acción
  */
 export function processIntent(intent, currentLocation) {
+  console.log('[PROCESS] Procesando intent:', intent.type);
+
+  // STOP: Parar y pausar decisiones
+  if (intent.type === 'stop') {
+    stopAndPause(30); // Pausar 30 segundos
+    addMemory(
+      MEMORY_TYPES.CONVERSATION,
+      'Rodrigo me pidió que me detuviera. Esperaré aquí.',
+      currentLocation,
+      5
+    );
+    recordAction('stop', 'Rodrigo pidió detenerse');
+    return 'stop';
+  }
+
+  // GO_TO: Ir a un lugar específico
   if (intent.type === 'go_to' && intent.destination) {
     const destName = LOCATIONS[intent.destination]?.name || intent.destination;
     forceDestination(intent.destination, `Ir a ${destName}`);
@@ -113,9 +147,10 @@ export function processIntent(intent, currentLocation) {
       7
     );
     recordAction('chat_request', `Rodrigo pidió ir a ${destName}`);
-    return true;
+    return 'go_to';
   }
 
+  // EXPLORE: Explorar lugares nuevos
   if (intent.type === 'explore') {
     enableExploreMode();
     addMemory(
@@ -125,7 +160,7 @@ export function processIntent(intent, currentLocation) {
       6
     );
     recordAction('chat_request', 'Rodrigo pidió explorar');
-    return true;
+    return 'explore';
   }
 
   return false;
@@ -140,13 +175,23 @@ export function processIntent(intent, currentLocation) {
 export async function decideNextMove(currentLocation, lastLocations, mood, lastChatMessage) {
   const worldState = getWorldState();
 
+  console.log('[BRAIN] decideNextMove llamado');
+  console.log('[BRAIN] forcedDestination:', worldState.forcedDestination);
+  console.log('[BRAIN] exploreMode:', worldState.exploreMode);
+
+  // Verificar si las decisiones están pausadas (por comando "detente")
+  if (areDecisionsPaused()) {
+    console.log('[BRAIN] Decisiones pausadas, retornando null');
+    return null;
+  }
+
   // PRIORIDAD 1: Si hay destino forzado por chat, ir ahí
   if (worldState.forcedDestination) {
     const dest = worldState.forcedDestination;
     const destName = LOCATIONS[dest]?.name || dest;
     clearForcedDestination();
 
-    console.log('[brain] Destino forzado por chat:', dest);
+    console.log('[BRAIN] ✓ Usando destino forzado:', dest);
 
     return {
       destination: dest,

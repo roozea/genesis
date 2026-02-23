@@ -30,6 +30,8 @@ const initialState = {
   // Control de movimiento (chat -> mundo)
   forcedDestination: null,       // destino forzado por chat
   exploreMode: false,            // priorizar lugares no visitados
+  cancelCurrentPath: false,      // interrumpir caminata actual
+  pauseDecisionsUntil: null,     // pausar decisiones hasta timestamp
 
   // Memorias (resumen rápido)
   recentMemories: [],            // últimas 5 memorias
@@ -178,11 +180,14 @@ export function recordChatExchange(userMsg, arqReply, topic) {
 
 /**
  * Establece un destino forzado (desde chat)
+ * IMPORTANTE: También cancela la caminata actual
  */
 export function forceDestination(destinationKey, reason) {
+  console.log('[WORLD] forceDestination:', destinationKey, reason);
   updateWorldState({
     forcedDestination: destinationKey,
     pendingRequest: reason,
+    cancelCurrentPath: true,  // Cancelar caminata actual
   });
 }
 
@@ -194,6 +199,7 @@ export function clearForcedDestination() {
     forcedDestination: null,
     pendingRequest: null,
     exploreMode: false,
+    cancelCurrentPath: false,
   });
 }
 
@@ -204,7 +210,50 @@ export function enableExploreMode() {
   updateWorldState({
     exploreMode: true,
     pendingRequest: 'Explorar lugares nuevos',
+    cancelCurrentPath: true,  // Cancelar caminata actual para explorar
   });
+}
+
+/**
+ * Para a Arq y pausa decisiones por un tiempo
+ * @param {number} pauseSeconds - Segundos a pausar (default 30)
+ */
+export function stopAndPause(pauseSeconds = 30) {
+  console.log('[WORLD] stopAndPause:', pauseSeconds, 'segundos');
+  updateWorldState({
+    cancelCurrentPath: true,
+    isWalking: false,
+    walkingTo: null,
+    pauseDecisionsUntil: Date.now() + (pauseSeconds * 1000),
+  });
+}
+
+/**
+ * Verifica si las decisiones están pausadas
+ */
+export function areDecisionsPaused() {
+  const until = worldState.pauseDecisionsUntil;
+  if (!until) return false;
+  if (Date.now() > until) {
+    // Ya pasó el tiempo, limpiar
+    updateWorldState({ pauseDecisionsUntil: null });
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Verifica si hay que cancelar el path actual
+ */
+export function shouldCancelPath() {
+  return worldState.cancelCurrentPath;
+}
+
+/**
+ * Limpia el flag de cancelación
+ */
+export function clearCancelFlag() {
+  updateWorldState({ cancelCurrentPath: false });
 }
 
 /**

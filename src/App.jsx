@@ -32,6 +32,8 @@ import {
   setMood,
   recordAction,
   recordChatExchange,
+  shouldCancelPath,
+  clearCancelFlag,
 } from './agents/worldState';
 import { LOCATIONS } from './world/locations';
 import GameMap from './world/GameMap';
@@ -110,8 +112,9 @@ export default function App() {
   }, [addLog]);
 
   // Caminar paso a paso por el path
+  // Retorna true si completó, false si fue cancelado
   const walkPath = useCallback(async (path, finalThought, startPos, destinationKey) => {
-    if (path.length === 0) return;
+    if (path.length === 0) return true;
 
     isWalkingRef.current = true;
     setAgent(prev => ({ ...prev, state: 'walking' }));
@@ -120,8 +123,17 @@ export default function App() {
     startWalking(destinationKey);
 
     let prevPos = startPos;
+    let wasCancelled = false;
 
     for (let i = 0; i < path.length; i++) {
+      // CRÍTICO: Revisar si hay que cancelar la caminata
+      if (shouldCancelPath()) {
+        console.log('[WALK] Caminata cancelada en paso', i, 'de', path.length);
+        wasCancelled = true;
+        clearCancelFlag();
+        break;
+      }
+
       const step = path[i];
       const direction = getMovementDirection(prevPos.row, prevPos.col, step.row, step.col);
 
@@ -136,12 +148,21 @@ export default function App() {
       await new Promise(resolve => setTimeout(resolve, STEP_DELAY));
     }
 
-    // Llegó al destino
+    // Terminar caminata (ya sea por llegar o por cancelación)
     setAgent(prev => ({ ...prev, state: 'idle' }));
     isWalkingRef.current = false;
-
-    // Actualizar worldState: llegó al destino
     stopWalking();
+
+    // Si fue cancelado, no registrar llegada
+    if (wasCancelled) {
+      // Actualizar ubicación a donde quedó (prevPos)
+      const currentLoc = getCurrentLocationKey(prevPos.row, prevPos.col);
+      setLocation(currentLoc);
+      addLog('system', 'Caminata interrumpida', '⚡');
+      return false;
+    }
+
+    // Llegó al destino normalmente
     setLocation(destinationKey);
 
     // Registrar llegada en memoria
@@ -154,15 +175,29 @@ export default function App() {
     // Mostrar thought bubble y guardarlo como memoria
     if (finalThought) {
       setThought(finalThought);
-      // Guardar el pensamiento como memoria
       recordThought(finalThought, destinationKey);
       setTimeout(() => setThought(null), 4000);
     }
-  }, []);
+
+    return true;
+  }, [addLog]);
 
   // Decidir próximo movimiento con IA
   const makeDecision = useCallback(async () => {
-    if (isWalkingRef.current) return;
+    const worldState = getWorldState();
+
+    // Si hay forcedDestination, esperar a que termine la caminata actual
+    // (el flag cancelCurrentPath ya habrá sido seteado)
+    if (isWalkingRef.current) {
+      // Si hay destino forzado, esperar un poco y reintentar
+      if (worldState.forcedDestination) {
+        console.log('[APP] Esperando que termine caminata para forzar destino...');
+        setTimeout(() => makeDecision(), 200);
+        return;
+      }
+      // Si no hay destino forzado, simplemente salir
+      return;
+    }
 
     const lastChatMessage = messages.length > 0 ? messages[messages.length - 1]?.content : '';
 
@@ -293,14 +328,35 @@ export default function App() {
 
       // DETECTAR INTENCIÓN y afectar al mundo
       const intent = parseIntent(text);
+      console.log('[APP] Intent detectado:', intent);
+
       if (intent.type !== 'chat') {
         const processed = processIntent(intent, currentLocation);
+        console.log('[APP] Intent procesado:', processed);
+
         if (processed) {
-          if (intent.type === 'go_to') {
+          if (processed === 'go_to') {
             const destName = LOCATIONS[intent.destination]?.name || intent.destination;
             addLog('system', `Destino forzado: ${destName} (por chat)`, '📍');
-          } else if (intent.type === 'explore') {
+
+            // CRÍTICO: Triggear decisión INMEDIATA después de un pequeño delay
+            // para dar tiempo a que walkPath detecte el cancelCurrentPath
+            setTimeout(() => {
+              console.log('[APP] Triggeando makeDecision inmediato');
+              makeDecision();
+            }, 100);
+
+          } else if (processed === 'explore') {
             addLog('system', 'Modo exploración activado (por chat)', '🔍');
+
+            // También triggear decisión inmediata para explorar
+            setTimeout(() => {
+              console.log('[APP] Triggeando makeDecision para explorar');
+              makeDecision();
+            }, 100);
+
+          } else if (processed === 'stop') {
+            addLog('system', 'Arq se detuvo (por chat)', '⏸️');
           }
         }
       }
@@ -320,7 +376,7 @@ export default function App() {
 
     setIsLoading(false);
     setAgentStatus('online');
-  }, [currentLocation, addLog]);
+  }, [currentLocation, addLog, makeDecision]);
 
   return (
     <div
