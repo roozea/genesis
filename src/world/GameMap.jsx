@@ -1,14 +1,35 @@
 // GENESIS — Renderiza el grid de tiles del mapa
+import { useMemo } from 'react';
 import { MAP } from './mapData';
 import Tile from './Tile';
 import AgentSprite from '../agents/AgentSprite';
 import { PALETTE } from '../config/palette';
+import { getWorldChanges } from '../agents/projects';
 
 const TILE_SIZE = 24;
 
 export default function GameMap({ agent, thought, thoughtType, timeFilter, workProgress, floatingRewards }) {
   // Filtro de tiempo (día/noche)
   const filter = timeFilter || { filter: 'none', backgroundColor: 'transparent', overlay: 'none' };
+
+  // Aplicar cambios del mundo (tiles de proyectos completados)
+  const mapWithChanges = useMemo(() => {
+    const worldChanges = getWorldChanges();
+    if (worldChanges.length === 0) return MAP;
+
+    // Crear copia del mapa
+    const newMap = MAP.map(row => [...row]);
+
+    // Aplicar cambios
+    worldChanges.forEach(change => {
+      if (change.r >= 0 && change.r < newMap.length &&
+          change.c >= 0 && change.c < newMap[0].length) {
+        newMap[change.r][change.c] = change.type;
+      }
+    });
+
+    return newMap;
+  }, []); // Se recalcula solo en mount (los cambios persisten en localStorage)
 
   return (
     <div
@@ -23,8 +44,8 @@ export default function GameMap({ agent, thought, thoughtType, timeFilter, workP
         style={{
           position: 'relative',
           display: 'grid',
-          gridTemplateColumns: `repeat(${MAP[0].length}, ${TILE_SIZE}px)`,
-          gridTemplateRows: `repeat(${MAP.length}, ${TILE_SIZE}px)`,
+          gridTemplateColumns: `repeat(${mapWithChanges[0].length}, ${TILE_SIZE}px)`,
+          gridTemplateRows: `repeat(${mapWithChanges.length}, ${TILE_SIZE}px)`,
           backgroundColor: PALETTE.bg,
           boxShadow: `0 0 20px rgba(0,0,0,0.5), inset 0 0 60px rgba(0,0,0,0.3)`,
           filter: filter.filter,
@@ -32,7 +53,7 @@ export default function GameMap({ agent, thought, thoughtType, timeFilter, workP
         }}
       >
         {/* Render de tiles */}
-        {MAP.map((row, rowIndex) =>
+        {mapWithChanges.map((row, rowIndex) =>
           row.map((tileType, colIndex) => (
             <Tile
               key={`${rowIndex}-${colIndex}`}

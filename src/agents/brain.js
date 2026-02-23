@@ -109,6 +109,20 @@ export function parseIntent(userMsg) {
     return { type: 'explore' };
   }
 
+  // Detectar pregunta sobre proyectos/construcción
+  const projectQuestionWords = ['que puedes construir', 'que puedo construir', 'proyectos', 'que puedes hacer', 'construir algo'];
+  if (projectQuestionWords.some(w => msg.includes(w))) {
+    console.log('[INTENT] Detectado: LIST_PROJECTS');
+    return { type: 'list_projects' };
+  }
+
+  // Detectar petición de construir algo específico
+  const buildWords = ['construye', 'construir', 'haz el', 'haz la', 'hazme', 'crea', 'fabrica', 'arma'];
+  if (buildWords.some(w => msg.includes(w))) {
+    console.log('[INTENT] Detectado: BUILD');
+    return { type: 'build', text: msg };
+  }
+
   // Solo conversación
   console.log('[INTENT] Detectado: CHAT (conversación normal)');
   return { type: 'chat' };
@@ -168,7 +182,7 @@ export function processIntent(intent, currentLocation) {
 
 /**
  * Decide el próximo destino del agente usando IA con fallback chain
- * Ahora incluye memorias en el prompt
+ * USA PROMPTS SIMPLES (sin JSON) para compatibilidad con modelos 7B
  * PRIORIDAD: forcedDestination > exploreMode > IA decision
  * @returns {Promise<{destination: string, thought: string, mood: string, source: string} | null>}
  */
@@ -188,11 +202,8 @@ export async function decideNextMove(currentLocation, lastLocations, mood, lastC
   // PRIORIDAD 1: Si hay destino forzado por chat, ir ahí
   if (worldState.forcedDestination) {
     const dest = worldState.forcedDestination;
-    const destName = LOCATIONS[dest]?.name || dest;
     clearForcedDestination();
-
     console.log('[BRAIN] ✓ Usando destino forzado:', dest);
-
     return {
       destination: dest,
       thought: `Rodrigo me pidió ir... ¡vamos! 🎯`,
@@ -205,10 +216,8 @@ export async function decideNextMove(currentLocation, lastLocations, mood, lastC
   if (worldState.exploreMode) {
     const leastVisited = getLeastVisitedLocation(currentLocation, lastLocations);
     if (leastVisited) {
-      clearForcedDestination(); // También limpia exploreMode
-
-      console.log('[brain] Modo exploración, yendo a:', leastVisited);
-
+      clearForcedDestination();
+      console.log('[BRAIN] Modo exploración, yendo a:', leastVisited);
       return {
         destination: leastVisited,
         thought: `Explorando nuevos lugares... 🔍`,
@@ -218,109 +227,107 @@ export async function decideNextMove(currentLocation, lastLocations, mood, lastC
     }
   }
 
-  // PRIORIDAD 3: Decisión normal con IA
-  // Recuperar memorias relevantes para la decisión (top 3)
-  const context = `En ${currentLocation}, mood ${mood}, ${lastChatMessage || 'sin chat'}`;
-  const relevantMemories = retrieveMemories(context, 3);
-  const memoriesText = formatMemoriesForPrompt(relevantMemories);
-
-  // Generar prompt con memorias
-  const prompt = getMovementPrompt(currentLocation, lastLocations, mood, lastChatMessage, memoriesText);
+  // PRIORIDAD 3: Decisión normal con IA (PROMPT SIMPLE)
   const validKeys = getLocationKeys();
 
-  console.log('[BRAIN] Prompt de movimiento:', prompt.slice(0, 200) + '...');
-  console.log('[BRAIN] Llamando think tier fast...');
+  // Construir lista de ubicaciones disponibles (excluyendo actual y últimas 2)
+  const availableLocations = validKeys
+    .filter(key => key !== currentLocation && !lastLocations.slice(-2).includes(key))
+    .map(key => ({
+      key,
+      name: LOCATIONS[key]?.name || key,
+    }));
+
+  if (availableLocations.length === 0) {
+    console.log('[BRAIN] No hay ubicaciones disponibles, usando random');
+    return randomDecision(currentLocation, lastLocations);
+  }
+
+  // PROMPT 1: Elegir destino (MUY SIMPLE, solo pide el key)
+  const destPrompt = `Elige UN destino de esta lista:
+${availableLocations.map(l => `- ${l.key}: ${l.name}`).join('\n')}
+
+Estás en: ${currentLocation}
+No vayas a: ${lastLocations.slice(-2).join(', ') || 'ninguno'}
+
+Responde SOLO el key del destino, nada más. Ejemplo: garden`;
+
+  console.log('[BRAIN] Prompt destino:', destPrompt);
 
   try {
-    // Usar el sistema de fallback chain
-    const result = await think(prompt, 'Decide a dónde ir.', 'fast');
+    const destResult = await think(destPrompt, 'Elige destino.', 'fast');
+    console.log('[BRAIN] Respuesta destino:', destResult.source, '|', destResult.response);
 
-    console.log('[BRAIN] Respuesta de think:', result.source, '|', result.response?.slice(0, 100));
-
-    // Si llegamos a fallback, usar decisión random
-    if (result.source === 'fallback' || !result.response) {
-      console.log('[BRAIN] ❌ Think retornó fallback, usando random');
+    if (destResult.source === 'fallback' || !destResult.response) {
+      console.log('[BRAIN] ❌ Think falló, usando random');
       return randomDecision(currentLocation, lastLocations);
     }
 
-    const responseText = result.response;
+    // Parsear respuesta: buscar key válido en el texto
+    const responseText = destResult.response.trim().toLowerCase();
+    const availableKeys = availableLocations.map(l => l.key);
 
-    // MÉTODO 1: Intentar parsear JSON
-    const jsonMatch = responseText.match(/\{[\s\S]*?\}/);
-    if (jsonMatch) {
-      try {
-        const decision = JSON.parse(jsonMatch[0]);
-        console.log('[BRAIN] ✓ JSON parseado:', decision);
+    // Buscar el primer key válido que aparezca en la respuesta
+    let destination = null;
+    for (const key of availableKeys) {
+      if (responseText.includes(key)) {
+        destination = key;
+        break;
+      }
+    }
 
-        // Validar destino
-        if (decision.d && validKeys.includes(decision.d)) {
-          // Validar que no sea el mismo lugar ni los últimos 2
-          if (decision.d !== currentLocation && !lastLocations.slice(-2).includes(decision.d)) {
-            // Validar mood
-            if (!decision.m || !MOODS.includes(decision.m)) {
-              decision.m = mood;
-            }
-            console.log('[BRAIN] ✓ Decisión válida desde JSON:', decision.d);
-            return {
-              destination: decision.d,
-              thought: decision.t || 'Vamos allá... 🚶',
-              mood: decision.m,
-              source: result.source,
-            };
-          }
+    if (!destination) {
+      console.log('[BRAIN] ❌ No se encontró key válido en respuesta, usando random');
+      return randomDecision(currentLocation, lastLocations);
+    }
+
+    const destName = LOCATIONS[destination]?.name || destination;
+    console.log('[BRAIN] ✓ Destino elegido:', destination, '(', destName, ')');
+
+    // PROMPT 2: Generar pensamiento (SEPARADO)
+    const thoughtPrompt = `Eres Arq caminando a ${destName}.
+Genera UN pensamiento corto (max 8 palabras) con 1 emoji.
+Solo el pensamiento, nada más.`;
+
+    let thought = `Vamos a ${destName}... 🚶`;
+
+    try {
+      const thoughtResult = await think(thoughtPrompt, 'Pensamiento.', 'fast');
+      if (thoughtResult.response && thoughtResult.source !== 'fallback') {
+        // Limpiar respuesta: quitar comillas, puntos extra, etc.
+        let cleanThought = thoughtResult.response
+          .replace(/^["']|["']$/g, '')
+          .replace(/^pensamiento:?\s*/i, '')
+          .trim();
+
+        // Validar longitud
+        if (cleanThought.length > 5 && cleanThought.length < 60) {
+          thought = cleanThought;
         }
-        console.log('[BRAIN] JSON válido pero destino inválido:', decision.d);
-      } catch (parseError) {
-        console.log('[BRAIN] JSON parse falló:', parseError.message);
+        console.log('[BRAIN] ✓ Pensamiento generado:', thought);
       }
+    } catch (thoughtError) {
+      console.log('[BRAIN] Pensamiento falló, usando default');
     }
 
-    // MÉTODO 2: Buscar nombre de ubicación directamente en el texto
-    console.log('[BRAIN] Intentando extraer destino del texto libre...');
-    const textLower = responseText.toLowerCase();
-
-    for (const key of validKeys) {
-      if (key === currentLocation || lastLocations.slice(-2).includes(key)) continue;
-
-      // Buscar la clave exacta o el nombre del lugar
-      const locationName = LOCATIONS[key]?.name?.toLowerCase() || '';
-      if (textLower.includes(key) || (locationName && textLower.includes(locationName))) {
-        console.log('[BRAIN] ✓ Destino encontrado en texto:', key);
-        return {
-          destination: key,
-          thought: extractThoughtFromText(responseText) || 'Vamos... 🚶',
-          mood: extractMoodFromText(responseText) || mood,
-          source: result.source,
-        };
-      }
-    }
-
-    // MÉTODO 3: Buscar con regex palabras clave de lugares
-    const placeKeywords = {
-      'lago': 'lakeshore', 'orilla': 'lakeshore', 'agua': 'lakeshore',
-      'jardin': 'garden', 'jardín': 'garden', 'flores': 'garden',
-      'taller': 'workshop', 'casa': 'workshop',
-      'bosque': 'forest', 'árboles': 'forest', 'arboles': 'forest',
-      'cruce': 'crossroad', 'centro': 'crossroad',
-      'pradera': 'meadow', 'pasto': 'meadow', 'campo': 'meadow',
-      'este': 'eastpath', 'camino': 'eastpath',
+    // Elegir mood basado en destino
+    const moodMap = {
+      garden: 'peaceful',
+      lakeshore: 'calm',
+      forest: 'curious',
+      workshop: 'focused',
+      crossroad: 'restless',
+      meadow: 'happy',
+      eastpath: 'curious',
+      locked: 'curious',
     };
 
-    for (const [word, key] of Object.entries(placeKeywords)) {
-      if (key === currentLocation || lastLocations.slice(-2).includes(key)) continue;
-      if (textLower.includes(word)) {
-        console.log('[BRAIN] ✓ Destino por keyword:', key, '(matched:', word, ')');
-        return {
-          destination: key,
-          thought: extractThoughtFromText(responseText) || 'Vamos... 🚶',
-          mood: extractMoodFromText(responseText) || mood,
-          source: result.source,
-        };
-      }
-    }
-
-    console.log('[BRAIN] ❌ No se pudo extraer destino, usando random');
-    return randomDecision(currentLocation, lastLocations);
+    return {
+      destination,
+      thought,
+      mood: moodMap[destination] || mood,
+      source: destResult.source,
+    };
 
   } catch (error) {
     console.error('[BRAIN] ❌ Error en decisión IA:', error.message);

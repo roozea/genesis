@@ -149,6 +149,19 @@ export function getResources() {
 }
 
 /**
+ * Gasta recursos (para proyectos de construcción)
+ * @param {object} cost - { knowledge, materials, inspiration }
+ */
+export function spendResources(cost) {
+  taskState.resources.knowledge = Math.max(0, taskState.resources.knowledge - (cost.knowledge || 0));
+  taskState.resources.materials = Math.max(0, taskState.resources.materials - (cost.materials || 0));
+  taskState.resources.inspiration = Math.max(0, taskState.resources.inspiration - (cost.inspiration || 0));
+  saveState();
+  notifyStateChange();
+  console.log('[TASK] Recursos gastados:', cost, 'Nuevo total:', taskState.resources);
+}
+
+/**
  * Extrae el tema del mensaje después del verbo trigger
  */
 function extractTopic(msg, triggerWords) {

@@ -62,7 +62,18 @@ import {
   getResources,
   onTaskStateChange,
   TASK_TYPES,
+  spendResources,
 } from './agents/taskSystem';
+import {
+  getAvailableProjects,
+  getActiveProject,
+  startProject,
+  workOnProject,
+  formatProjectsForChat,
+  findProjectByKeyword,
+  onProjectChange,
+  getProjectState,
+} from './agents/projects';
 import { LOCATIONS } from './world/locations';
 import GameMap from './world/GameMap';
 import Header from './ui/Header';
@@ -738,6 +749,94 @@ export default function App() {
         return;
       }
 
+      // ═══ DETECTAR INTENCIONES DE PROYECTO ═══
+      const intent = parseIntent(text);
+      console.log('[APP] Intent:', intent);
+
+      // LISTAR PROYECTOS
+      if (intent.type === 'list_projects') {
+        const projectsList = formatProjectsForChat(resources);
+        const response = `Estos son mis proyectos:\n\n${projectsList}\n\n¿Cuál hacemos? 🏗️`;
+        setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: Date.now() }]);
+        addLog('system', 'Mostrando proyectos disponibles', '📋');
+        setIsLoading(false);
+        setAgentStatus('online');
+        return;
+      }
+
+      // CONSTRUIR PROYECTO
+      if (intent.type === 'build') {
+        const project = findProjectByKeyword(intent.text);
+
+        if (!project) {
+          const response = 'No entendí qué quieres que construya. Dime "qué puedes construir" para ver la lista 🤔';
+          setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: Date.now() }]);
+          setIsLoading(false);
+          setAgentStatus('online');
+          return;
+        }
+
+        // Verificar si ya hay proyecto activo
+        const activeProject = getActiveProject();
+        if (activeProject) {
+          const response = `Ya estoy construyendo ${activeProject.icon} ${activeProject.name}. Primero debo terminar eso (${activeProject.turnsCompleted}/${activeProject.workTurns} turnos). 🏗️`;
+          setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: Date.now() }]);
+          setIsLoading(false);
+          setAgentStatus('online');
+          return;
+        }
+
+        // Verificar recursos
+        const available = getAvailableProjects(resources);
+        const projectInfo = available.find(p => p.id === project.id);
+
+        if (!projectInfo) {
+          const response = `El proyecto "${project.name}" no está disponible aún. Puede que esté bloqueado o ya lo completé 🔒`;
+          setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: Date.now() }]);
+          setIsLoading(false);
+          setAgentStatus('online');
+          return;
+        }
+
+        if (!projectInfo.canAfford) {
+          const missing = [];
+          if (projectInfo.missingResources?.knowledge) missing.push(`📚${projectInfo.missingResources.knowledge}`);
+          if (projectInfo.missingResources?.materials) missing.push(`🪨${projectInfo.missingResources.materials}`);
+          if (projectInfo.missingResources?.inspiration) missing.push(`✨${projectInfo.missingResources.inspiration}`);
+          const response = `Me faltan recursos para ${project.icon} ${project.name}:\n⚠️ Necesito ${missing.join(' ')} más.\n\nSigue asignándome tareas para conseguir recursos 💪`;
+          setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: Date.now() }]);
+          setIsLoading(false);
+          setAgentStatus('online');
+          return;
+        }
+
+        // ¡Iniciar proyecto!
+        const started = startProject(project.id, resources);
+        if (started) {
+          // Actualizar recursos en taskSystem
+          spendResources(project.cost);
+
+          const response = `¡Perfecto! Voy a construir ${project.icon} ${project.name}.\n\n📍 Ubicación: ${LOCATIONS[project.location]?.name || project.location}\n⏱️ ${project.workTurns} turnos de trabajo\n\n${project.description}\n\nVoy para allá... 🏗️`;
+          setMessages(prev => [...prev, { role: 'assistant', content: response, timestamp: Date.now() }]);
+          addLog('project', `Iniciando: ${project.name}`, project.icon);
+
+          // Ir a la ubicación del proyecto
+          if (currentLocation !== project.location) {
+            forceDestination(project.location, `Construir ${project.name}`);
+            setTimeout(() => makeDecision(), 100);
+          }
+
+          // Cambiar estado visual
+          setAgent(prev => ({ ...prev, state: 'walking' }));
+          setMoodState('focused');
+          setMood('focused');
+        }
+
+        setIsLoading(false);
+        setAgentStatus('online');
+        return;
+      }
+
       // ═══ CHAT NORMAL ═══
       // Obtener estado del mundo actual (CONTEXTO VIVO)
       const worldState = getWorldState();
@@ -787,7 +886,7 @@ export default function App() {
       onChatMessage();
 
       // DETECTAR INTENCIÓN DE MOVIMIENTO y afectar al mundo
-      const intent = parseIntent(text);
+      // (intent ya fue parseado arriba para proyectos)
       console.log('[APP] Movement intent:', intent);
 
       if (intent.type !== 'chat') {

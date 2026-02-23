@@ -37,6 +37,15 @@ export default function Tile({ type, row, col }) {
       return <FlowersTile row={row} col={col} style={baseStyle} />;
     case 'bridge':
       return <BridgeTile row={row} col={col} style={baseStyle} />;
+    // Tiles de proyectos construidos
+    case 'workbench':
+      return <WorkbenchTile row={row} col={col} style={baseStyle} />;
+    case 'dock':
+      return <DockTile row={row} col={col} style={baseStyle} />;
+    case 'signpost':
+      return <SignpostTile row={row} col={col} style={baseStyle} />;
+    case 'door_cracked':
+      return <DoorCrackedTile row={row} col={col} style={baseStyle} />;
     default:
       return <div style={{ ...baseStyle, backgroundColor: PALETTE.bg }} />;
   }
@@ -407,6 +416,208 @@ function BridgeTile({ row, col, style }) {
             height: 1,
             backgroundColor: 'rgba(0,0,0,0.2)',
             top: 11,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// TILES DE PROYECTOS CONSTRUIDOS
+// ============================================
+
+// Mesa de trabajo (sobre pared del taller)
+function WorkbenchTile({ row, col, style }) {
+  return (
+    <div style={{ ...style, backgroundColor: PALETTE.wall }}>
+      {/* Mesa marrón */}
+      <div
+        style={{
+          position: 'absolute',
+          width: 20,
+          height: 8,
+          backgroundColor: '#8B4513',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          bottom: 4,
+          borderRadius: 2,
+          boxShadow: 'inset 0 -2px 3px rgba(0,0,0,0.3)',
+        }}
+      />
+      {/* Herramientas sobre la mesa */}
+      <div
+        style={{
+          position: 'absolute',
+          width: 4,
+          height: 6,
+          backgroundColor: '#CD853F',
+          left: 6,
+          bottom: 12,
+          borderRadius: '1px 1px 0 0',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          width: 3,
+          height: 5,
+          backgroundColor: '#A0522D',
+          left: 14,
+          bottom: 12,
+          borderRadius: 1,
+        }}
+      />
+      {/* Brillito dorado */}
+      <div
+        style={{
+          position: 'absolute',
+          width: 3,
+          height: 3,
+          backgroundColor: PALETTE.accent,
+          borderRadius: '50%',
+          right: 5,
+          bottom: 14,
+          opacity: 0.8,
+          animation: 'doorKnobGlow 2s ease-in-out infinite',
+        }}
+      />
+    </div>
+  );
+}
+
+// Muelle sobre agua
+function DockTile({ row, col, style }) {
+  return (
+    <div style={{ ...style, backgroundColor: PALETTE.waterDeep }}>
+      {/* Tablones horizontales del muelle */}
+      <div
+        style={{
+          position: 'absolute',
+          width: 22,
+          height: 6,
+          backgroundColor: '#8B5A2B',
+          left: 1,
+          top: 3,
+          boxShadow: 'inset 0 -1px 2px rgba(0,0,0,0.3)',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          width: 22,
+          height: 6,
+          backgroundColor: '#A0522D',
+          left: 1,
+          top: 10,
+          boxShadow: 'inset 0 -1px 2px rgba(0,0,0,0.3)',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          width: 22,
+          height: 5,
+          backgroundColor: '#8B5A2B',
+          left: 1,
+          top: 17,
+          boxShadow: 'inset 0 -1px 2px rgba(0,0,0,0.3)',
+        }}
+      />
+      {/* Líneas entre tablones */}
+      <div style={{ position: 'absolute', width: 22, height: 1, backgroundColor: 'rgba(0,0,0,0.3)', left: 1, top: 9 }} />
+      <div style={{ position: 'absolute', width: 22, height: 1, backgroundColor: 'rgba(0,0,0,0.3)', left: 1, top: 16 }} />
+    </div>
+  );
+}
+
+// Señales de camino
+function SignpostTile({ row, col, style }) {
+  const isAlt = (row + col) % 2 === 0;
+  const bgColor = isAlt ? PALETTE.path : PALETTE.pathAlt;
+
+  return (
+    <div style={{ ...style, backgroundColor: bgColor }}>
+      {/* Poste */}
+      <div
+        style={{
+          position: 'absolute',
+          width: 3,
+          height: 18,
+          backgroundColor: '#5C4033',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          bottom: 0,
+          borderRadius: '1px 1px 0 0',
+        }}
+      />
+      {/* Flecha derecha */}
+      <div
+        style={{
+          position: 'absolute',
+          width: 10,
+          height: 4,
+          backgroundColor: '#8B4513',
+          left: 12,
+          top: 5,
+          clipPath: 'polygon(0% 0%, 70% 0%, 100% 50%, 70% 100%, 0% 100%)',
+        }}
+      />
+      {/* Flecha izquierda */}
+      <div
+        style={{
+          position: 'absolute',
+          width: 10,
+          height: 4,
+          backgroundColor: '#A0522D',
+          right: 12,
+          top: 11,
+          clipPath: 'polygon(30% 0%, 100% 0%, 100% 100%, 30% 100%, 0% 50%)',
+        }}
+      />
+    </div>
+  );
+}
+
+// Puerta entreabierta con luz
+function DoorCrackedTile({ row, col, style }) {
+  return (
+    <div style={{ ...style, backgroundColor: PALETTE.locked }}>
+      {/* Marco de la puerta */}
+      <div
+        style={{
+          position: 'absolute',
+          width: 12,
+          height: 16,
+          backgroundColor: PALETTE.lockedDoor,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          bottom: 0,
+          borderRadius: '3px 3px 0 0',
+        }}
+      >
+        {/* Grieta con luz */}
+        <div
+          style={{
+            position: 'absolute',
+            width: 3,
+            height: '100%',
+            background: 'linear-gradient(to right, #FFD700, #FFA500, transparent)',
+            right: 0,
+            top: 0,
+            animation: 'doorKnobGlow 1.5s ease-in-out infinite',
+            boxShadow: '0 0 8px 2px rgba(255, 215, 0, 0.5)',
+          }}
+        />
+        {/* Resplandor exterior */}
+        <div
+          style={{
+            position: 'absolute',
+            width: 6,
+            height: '100%',
+            background: 'radial-gradient(ellipse at right, rgba(255,215,0,0.4) 0%, transparent 70%)',
+            right: -4,
+            top: 0,
           }}
         />
       </div>
