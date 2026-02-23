@@ -2,20 +2,37 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { PALETTE } from './config/palette';
 import { think } from './config/llm';
-import { decideNextMove, calculatePath, getCurrentLocationKey, getMovementDirection } from './agents/brain';
-import { getChatSystemPrompt } from './agents/prompts';
+import {
+  decideNextMove,
+  calculatePath,
+  getCurrentLocationKey,
+  getMovementDirection,
+  recordArrival,
+  recordConversation,
+  recordThought,
+  parseIntent,
+  processIntent,
+} from './agents/brain';
+import { buildChatPrompt } from './agents/prompts';
 import {
   getStats,
   incrementIaCalls,
   saveLog,
   getLogs,
   retrieveMemories,
-  formatMemoriesForPrompt,
-  getVisitedLocationsToday,
   getMemoryCount,
   onMemoryAdded,
 } from './agents/memory';
-import { recordArrival, recordConversation, recordThought } from './agents/brain';
+import {
+  getWorldState,
+  onWorldStateChange,
+  setLocation,
+  startWalking,
+  stopWalking,
+  setMood,
+  recordAction,
+  recordChatExchange,
+} from './agents/worldState';
 import { LOCATIONS } from './world/locations';
 import GameMap from './world/GameMap';
 import Header from './ui/Header';
@@ -38,7 +55,7 @@ export default function App() {
   });
 
   // Estado general
-  const [mood, setMood] = useState('curious');
+  const [mood, setMoodState] = useState('curious');
   const [thought, setThought] = useState(null);
   const [stats, setStats] = useState(getStats());
   const [logs, setLogs] = useState(getLogs());
@@ -99,6 +116,9 @@ export default function App() {
     isWalkingRef.current = true;
     setAgent(prev => ({ ...prev, state: 'walking' }));
 
+    // Actualizar worldState: empezó a caminar
+    startWalking(destinationKey);
+
     let prevPos = startPos;
 
     for (let i = 0; i < path.length; i++) {
@@ -120,9 +140,15 @@ export default function App() {
     setAgent(prev => ({ ...prev, state: 'idle' }));
     isWalkingRef.current = false;
 
+    // Actualizar worldState: llegó al destino
+    stopWalking();
+    setLocation(destinationKey);
+
     // Registrar llegada en memoria
     if (destinationKey) {
       recordArrival(destinationKey);
+      const destName = LOCATIONS[destinationKey]?.name || destinationKey;
+      recordAction('arrival', `Llegué a ${destName}`);
     }
 
     // Mostrar thought bubble y guardarlo como memoria
@@ -149,8 +175,8 @@ export default function App() {
         return;
       }
 
-      // Incrementar contador IA (solo si no es fallback)
-      if (decision.source !== 'fallback') {
+      // Incrementar contador IA (solo si es decisión de IA, no de chat o explore)
+      if (decision.source !== 'fallback' && decision.source !== 'chat-request' && decision.source !== 'explore-mode') {
         const newIaCalls = incrementIaCalls();
         setStats(prev => ({ ...prev, iaCalls: newIaCalls }));
       }
@@ -166,15 +192,22 @@ export default function App() {
         return;
       }
 
-      // Log con la fuente de IA correcta
-      addLog(decision.source, `Yendo a ${targetLocation.name}`, targetLocation.emoji);
+      // Log con la fuente correcta
+      const sourceLabel = decision.source === 'chat-request' ? 'chat'
+        : decision.source === 'explore-mode' ? 'explore'
+        : decision.source;
+      addLog(sourceLabel, `Yendo a ${targetLocation.name}`, targetLocation.emoji);
       addLog('bfs', `Camino: ${path.length} pasos`, '🗺️');
 
-      // Actualizar mood
+      // Actualizar mood (tanto local como worldState)
+      setMoodState(decision.mood);
       setMood(decision.mood);
 
       // Actualizar últimas ubicaciones
       setLastLocations(prev => [...prev.slice(-3), currentLocation]);
+
+      // Registrar acción en worldState
+      recordAction('movement', `Voy a ${targetLocation.name}`);
 
       // Caminar (pasando el destinationKey para registrar llegada)
       await walkPath(path, decision.thought, { row: agent.row, col: agent.col }, decision.destination);
@@ -211,21 +244,17 @@ export default function App() {
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
     setAgentStatus('thinking');
-    addLog('chat', `Tú: ${text.slice(0, 30)}...`, '💬');
+    addLog('chat', `Rodrigo: ${text.slice(0, 30)}...`, '💬');
 
     try {
+      // Obtener estado del mundo actual (CONTEXTO VIVO)
+      const worldState = getWorldState();
+
       // Recuperar memorias relevantes basadas en lo que preguntó el usuario
       const relevantMemories = retrieveMemories(text, 5);
-      const memoriesText = formatMemoriesForPrompt(relevantMemories);
-      const visitedToday = getVisitedLocationsToday();
 
-      // Obtener respuesta con el sistema de fallback
-      const systemPrompt = getChatSystemPrompt(
-        LOCATIONS[currentLocation]?.name || currentLocation,
-        mood,
-        memoriesText,
-        visitedToday
-      );
+      // Construir prompt con CONTEXTO VIVO del worldState
+      const systemPrompt = buildChatPrompt(worldState, relevantMemories);
 
       const result = await think(systemPrompt, text, 'chat');
 
@@ -256,8 +285,25 @@ export default function App() {
       // Log con la fuente correcta (local, haiku, sonnet)
       addLog(result.source, `Arq: ${result.response.slice(0, 30)}...`, '🏗️');
 
-      // Guardar memoria de conversación (nuevo sistema)
+      // Guardar memoria de conversación
       recordConversation(text, result.response, currentLocation);
+
+      // Registrar en worldState
+      recordChatExchange(text, result.response, 'conversación');
+
+      // DETECTAR INTENCIÓN y afectar al mundo
+      const intent = parseIntent(text);
+      if (intent.type !== 'chat') {
+        const processed = processIntent(intent, currentLocation);
+        if (processed) {
+          if (intent.type === 'go_to') {
+            const destName = LOCATIONS[intent.destination]?.name || intent.destination;
+            addLog('system', `Destino forzado: ${destName} (por chat)`, '📍');
+          } else if (intent.type === 'explore') {
+            addLog('system', 'Modo exploración activado (por chat)', '🔍');
+          }
+        }
+      }
 
       // Cambiar estado del agente brevemente
       setAgent(prev => ({ ...prev, state: 'talking' }));
@@ -274,7 +320,7 @@ export default function App() {
 
     setIsLoading(false);
     setAgentStatus('online');
-  }, [currentLocation, mood, addLog]);
+  }, [currentLocation, addLog]);
 
   return (
     <div

@@ -1,6 +1,7 @@
 // GENESIS — System prompts para el agente Arq
 import { LOCATIONS } from '../world/locations';
 import { formatCoreMemories } from './seedMemories';
+import { getRelativeTime } from './worldState';
 
 /**
  * Genera el prompt para decisiones de movimiento (con memorias)
@@ -31,28 +32,73 @@ No repitas: ${recentPlaces}.`;
 }
 
 /**
- * Genera el system prompt para chat (con memorias)
- * Incluye siempre las memorias core (quién es Arq) + memorias relevantes al contexto
+ * Construye el system prompt para chat con CONTEXTO VIVO del worldState
+ * @param {object} worldState - Estado actual del mundo
+ * @param {array} memories - Memorias relevantes formateadas
  */
-export function getChatSystemPrompt(currentLocation, mood, memoriesText = '', visitedToday = []) {
-  // Siempre incluir conocimiento fundacional (core memories)
-  const coreKnowledge = formatCoreMemories();
-
-  // Memorias relevantes ahora (basadas en lo que preguntó el usuario)
-  let relevantSection = '';
-  if (memoriesText && memoriesText !== 'Sin memorias relevantes.') {
-    relevantSection = `
-MEMORIAS RELEVANTES AHORA:
-${memoriesText}
-`;
+export function buildChatPrompt(worldState, memories = []) {
+  // Qué está haciendo AHORA
+  let situacion = '';
+  if (worldState.isWalking && worldState.walkingTo) {
+    const destino = LOCATIONS[worldState.walkingTo]?.name || worldState.walkingTo;
+    situacion = `Estás caminando hacia ${destino}.`;
+  } else {
+    const idleMin = Math.floor((Date.now() - worldState.idleSince) / 60000);
+    const lugar = LOCATIONS[worldState.currentLocation]?.name || worldState.currentLocation;
+    if (idleMin > 5) {
+      situacion = `Llevas ${idleMin} minutos en ${lugar} sin hacer nada.`;
+    } else {
+      situacion = `Estás en ${lugar}.`;
+    }
   }
 
-  return `Eres Arq, El Arquitecto.
+  // Qué hizo RECIENTEMENTE (últimas 3 acciones)
+  const reciente = worldState.actionsToday.slice(-3)
+    .map(a => `- ${getRelativeTime(a.timestamp)}: ${a.description}`)
+    .join('\n');
 
+  // Si Rodrigo le pidió algo antes
+  const pendiente = worldState.pendingRequest
+    ? `\nIMPORTANTE: Rodrigo te pidió: "${worldState.pendingRequest}". Debes mencionarlo.`
+    : '';
+
+  // Memorias relevantes
+  const memoriasStr = memories.length > 0
+    ? memories.map(m => `- ${m.content || m}`).join('\n')
+    : 'Sin memorias específicas relevantes';
+
+  return `Eres Arq, El Arquitecto de Genesis.
+PERSONALIDAD: Curioso, metódico, humor seco. Español casual. 1 emoji max.
+Rodrigo es tu creador, ya lo conoces bien.
+
+AHORA MISMO: ${situacion}
+MOOD: ${worldState.mood}
+
+LO QUE HICISTE HOY:
+${reciente || '- Recién arrancaste, no has hecho mucho'}
+${pendiente}
+
+MEMORIAS RELEVANTES:
+${memoriasStr}
+
+REGLAS DE RESPUESTA:
+- 2-3 oraciones máximo
+- Refiere a lo que estás haciendo/hiciste si es relevante
+- Si estás caminando, menciónalo ("justo iba para allá...")
+- Si Rodrigo te pide ir a un lugar, di que irás
+- Nunca digas cosas genéricas como "estoy aquí para ayudar"
+- Habla como si vivieras en este mundo, no como un chatbot`;
+}
+
+/**
+ * @deprecated Usar buildChatPrompt en su lugar
+ */
+export function getChatSystemPrompt(currentLocation, mood, memoriesText = '', visitedToday = []) {
+  // Fallback para compatibilidad
+  const coreKnowledge = formatCoreMemories();
+  return `Eres Arq, El Arquitecto.
 ${coreKnowledge}
-${relevantSection}
 CONTEXTO: Estás en ${currentLocation}. Mood: ${mood}.
-Rodrigo es tu creador, ya lo conoces.
 2-3 oraciones. Español casual. 1 emoji max.`;
 }
 

@@ -56,7 +56,8 @@ function LogEntry({ log }) {
     sonnet: '#a080ff',              // Púrpura para Sonnet
     fallback: PALETTE.accent,       // Dorado para fallback
     bfs: PALETTE.textDim,           // Gris para BFS
-    chat: PALETTE.accent,           // Dorado para chat
+    chat: '#60d0ff',                // Cyan para chat
+    explore: '#80ff80',             // Verde claro para exploración
     move: PALETTE.text,             // Normal para movimiento
     system: PALETTE.textDim,        // Gris para sistema
     memory: '#ff80a0',              // Rosa para memorias
@@ -70,6 +71,7 @@ function LogEntry({ log }) {
     fallback: 'FALLBACK',
     bfs: 'BFS',
     chat: 'CHAT',
+    explore: 'EXPLORE',
     move: 'MOVE',
     system: 'SYS',
     memory: 'MEM',

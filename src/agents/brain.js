@@ -1,6 +1,7 @@
 // GENESIS — Sistema de decisiones IA para Arq
 // Con fallback chain completo: Local → Haiku → Sonnet → Random
 // Con Memory Stream integrado
+// Con WorldState para sincronización chat <-> mundo
 
 import { think } from '../config/llm';
 import { getMovementPrompt, getPlaceDescription, MOODS } from './prompts';
@@ -13,13 +14,166 @@ import {
 } from './memory';
 import { findPath, getDirection } from '../world/pathfinding';
 import { LOCATIONS, getLocationKeys, getLocation, getNearestLocation } from '../world/locations';
+import {
+  getWorldState,
+  clearForcedDestination,
+  forceDestination,
+  enableExploreMode,
+  recordAction,
+} from './worldState';
+
+// ============================================
+// PARSE INTENT - Detectar intenciones del chat
+// ============================================
+
+/**
+ * Mapeo de palabras a claves de ubicación
+ */
+const PLACE_KEYWORDS = {
+  'lago': 'lakeshore',
+  'orilla': 'lakeshore',
+  'agua': 'lakeshore',
+  'jardin': 'garden',
+  'jardín': 'garden',
+  'flores': 'garden',
+  'taller': 'workshop',
+  'casa': 'workshop',
+  'bosque': 'forest',
+  'arboles': 'forest',
+  'árboles': 'forest',
+  'cruce': 'crossroad',
+  'centro': 'crossroad',
+  'pradera': 'meadow',
+  'pasto': 'meadow',
+  'campo': 'meadow',
+  'este': 'eastpath',
+  'camino': 'eastpath',
+  'edificio': 'locked',
+  'cerrado': 'locked',
+  'misterioso': 'locked',
+  'puerta': 'locked',
+};
+
+/**
+ * Detecta si el mensaje implica una acción
+ * @param {string} userMsg - Mensaje del usuario
+ * @returns {{type: string, destination?: string, place?: string}}
+ */
+export function parseIntent(userMsg) {
+  const msg = userMsg.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // Detectar petición de ir a un lugar
+  const goVerbs = ['ve ', 'ir ', 'anda ', 'camina ', 'visita ', 'explora ', 'pasa por'];
+  const hasGoVerb = goVerbs.some(v => msg.includes(v));
+
+  if (hasGoVerb) {
+    for (const [word, key] of Object.entries(PLACE_KEYWORDS)) {
+      const normalWord = word.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (msg.includes(normalWord)) {
+        return { type: 'go_to', destination: key };
+      }
+    }
+  }
+
+  // Detectar pregunta sobre un lugar
+  const askPatterns = ['que hay', 'como es', 'que viste', 'que encontraste', 'que paso'];
+  const isAsking = askPatterns.some(p => msg.includes(p));
+
+  if (isAsking) {
+    for (const [word, key] of Object.entries(PLACE_KEYWORDS)) {
+      const normalWord = word.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (msg.includes(normalWord)) {
+        return { type: 'describe', place: key };
+      }
+    }
+  }
+
+  // Detectar petición de explorar en general
+  if (msg.includes('explora') || msg.includes('investiga') || msg.includes('descubre') || msg.includes('busca')) {
+    return { type: 'explore' };
+  }
+
+  // Solo conversación
+  return { type: 'chat' };
+}
+
+/**
+ * Procesa la intención detectada y actualiza el worldState
+ * @param {object} intent - Intención parseada
+ * @param {string} currentLocation - Ubicación actual
+ */
+export function processIntent(intent, currentLocation) {
+  if (intent.type === 'go_to' && intent.destination) {
+    const destName = LOCATIONS[intent.destination]?.name || intent.destination;
+    forceDestination(intent.destination, `Ir a ${destName}`);
+    addMemory(
+      MEMORY_TYPES.CONVERSATION,
+      `Rodrigo me pidió ir a ${destName}. Le dije que iría.`,
+      currentLocation,
+      7
+    );
+    recordAction('chat_request', `Rodrigo pidió ir a ${destName}`);
+    return true;
+  }
+
+  if (intent.type === 'explore') {
+    enableExploreMode();
+    addMemory(
+      MEMORY_TYPES.CONVERSATION,
+      'Rodrigo quiere que explore. Voy a buscar lugares que no conozco bien.',
+      currentLocation,
+      6
+    );
+    recordAction('chat_request', 'Rodrigo pidió explorar');
+    return true;
+  }
+
+  return false;
+}
 
 /**
  * Decide el próximo destino del agente usando IA con fallback chain
  * Ahora incluye memorias en el prompt
+ * PRIORIDAD: forcedDestination > exploreMode > IA decision
  * @returns {Promise<{destination: string, thought: string, mood: string, source: string} | null>}
  */
 export async function decideNextMove(currentLocation, lastLocations, mood, lastChatMessage) {
+  const worldState = getWorldState();
+
+  // PRIORIDAD 1: Si hay destino forzado por chat, ir ahí
+  if (worldState.forcedDestination) {
+    const dest = worldState.forcedDestination;
+    const destName = LOCATIONS[dest]?.name || dest;
+    clearForcedDestination();
+
+    console.log('[brain] Destino forzado por chat:', dest);
+
+    return {
+      destination: dest,
+      thought: `Rodrigo me pidió ir... ¡vamos! 🎯`,
+      mood: 'focused',
+      source: 'chat-request',
+    };
+  }
+
+  // PRIORIDAD 2: Si está en modo exploración, ir a lugares menos visitados
+  if (worldState.exploreMode) {
+    const leastVisited = getLeastVisitedLocation(currentLocation, lastLocations);
+    if (leastVisited) {
+      clearForcedDestination(); // También limpia exploreMode
+
+      console.log('[brain] Modo exploración, yendo a:', leastVisited);
+
+      return {
+        destination: leastVisited,
+        thought: `Explorando nuevos lugares... 🔍`,
+        mood: 'curious',
+        source: 'explore-mode',
+      };
+    }
+  }
+
+  // PRIORIDAD 3: Decisión normal con IA
   // Recuperar memorias relevantes para la decisión (top 3)
   const context = `En ${currentLocation}, mood ${mood}, ${lastChatMessage || 'sin chat'}`;
   const relevantMemories = retrieveMemories(context, 3);
@@ -156,6 +310,24 @@ function extractTopic(text) {
     .join(' ');
 
   return words || 'algo';
+}
+
+/**
+ * Obtiene el lugar menos visitado (para modo exploración)
+ */
+function getLeastVisitedLocation(currentLocation, lastLocations) {
+  const validKeys = getLocationKeys().filter(
+    key => key !== currentLocation && !lastLocations.slice(-2).includes(key)
+  );
+
+  if (validKeys.length === 0) return null;
+
+  // Ordenar por visitas (menos visitas primero)
+  const sorted = validKeys
+    .map(key => ({ key, visits: getVisitCount(key) }))
+    .sort((a, b) => a.visits - b.visits);
+
+  return sorted[0].key;
 }
 
 /**
