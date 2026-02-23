@@ -427,3 +427,23 @@ export function clearAllData() {
   localStorage.removeItem(STORAGE_KEYS.stats);
   localStorage.removeItem(STORAGE_KEYS.logs);
 }
+
+/**
+ * Limpia solo las memorias (reinicializa con seed memories)
+ */
+export function clearAllMemories() {
+  localStorage.removeItem(STORAGE_KEYS.memories);
+  // Reinicializar con seed memories
+  const coreMemories = getCoreMemoriesForInit();
+  saveMemories(coreMemories);
+  console.log('[memory] Memorias limpiadas, reinicializado con seed memories');
+}
+
+/**
+ * Obtiene las memorias core (permanentes/fundacionales)
+ * @returns {array} Memorias de tipo 'core'
+ */
+export function getCoreMemories() {
+  const memories = loadMemories();
+  return memories.filter(m => m.type === 'core');
+}

@@ -222,11 +222,13 @@ export async function think(systemPrompt, userMessage, tier = 'fast') {
   const maxTokens = tier === 'task' ? 800 : tier === 'chat' ? 400 : 150;
   const ollamaTokens = tier === 'task' ? 500 : tier === 'chat' ? 250 : 100;
 
-  // Fallback chain: LOCAL SIEMPRE PRIMERO para ambos tiers
+  // Fallback chain: LOCAL SIEMPRE PRIMERO para todos los tiers
   // fast = movimiento (respuestas cortas)
   // chat = conversación (respuestas más elaboradas)
   // task = trabajo/deliverables (respuestas largas)
   const chain = ['local', 'haiku', 'sonnet', 'fallback'];
+
+  console.log(`[LLM] think() tier=${tier}, tokens=${tier === 'fast' ? ollamaTokens : maxTokens}`);
 
   for (const source of chain) {
     try {
@@ -234,39 +236,56 @@ export async function think(systemPrompt, userMessage, tier = 'fast') {
 
       switch (source) {
         case 'local':
-          if (!llmState.ollamaAvailable || !llmState.ollamaModel) continue;
+          if (!llmState.ollamaAvailable || !llmState.ollamaModel) {
+            console.log('[LLM] local: saltando (no disponible)');
+            continue;
+          }
+          console.log(`[LLM] local: intentando con ${llmState.ollamaModel}...`);
           response = await callOllama(systemPrompt, userMessage, tier, ollamaTokens);
+          console.log('[LLM] local: respuesta:', response?.slice(0, 80) || '(vacía)');
           if (response && response.trim()) {
             return { response, source: 'local' };
           }
+          console.log('[LLM] local: respuesta vacía, continuando...');
           break;
 
         case 'haiku':
-          if (!llmState.apiKeyAvailable) continue;
+          if (!llmState.apiKeyAvailable) {
+            console.log('[LLM] haiku: saltando (no API key)');
+            continue;
+          }
+          console.log('[LLM] haiku: intentando...');
           response = await callAnthropic(systemPrompt, userMessage, 'haiku', maxTokens);
+          console.log('[LLM] haiku: respuesta:', response?.slice(0, 80) || '(vacía)');
           if (response && response.trim()) {
             return { response, source: 'haiku' };
           }
           break;
 
         case 'sonnet':
-          if (!llmState.apiKeyAvailable) continue;
+          if (!llmState.apiKeyAvailable) {
+            console.log('[LLM] sonnet: saltando (no API key)');
+            continue;
+          }
+          console.log('[LLM] sonnet: intentando...');
           response = await callAnthropic(systemPrompt, userMessage, 'sonnet', maxTokens);
+          console.log('[LLM] sonnet: respuesta:', response?.slice(0, 80) || '(vacía)');
           if (response && response.trim()) {
             return { response, source: 'sonnet' };
           }
           break;
 
         case 'fallback':
-          // Retorna null para que el caller use su propio fallback
+          console.log('[LLM] ❌ Llegando a fallback (nada funcionó)');
           return { response: null, source: 'fallback' };
       }
     } catch (error) {
-      console.warn(`[llm] ${source} falló:`, error.message);
+      console.error(`[LLM] ❌ ${source} falló:`, error.message);
       // Continuar con el siguiente en la cadena
     }
   }
 
+  console.log('[LLM] ❌ Chain completo sin éxito');
   return { response: null, source: 'fallback' };
 }
 

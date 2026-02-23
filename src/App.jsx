@@ -68,7 +68,9 @@ import GameMap from './world/GameMap';
 import Header from './ui/Header';
 import ActivityLog from './ui/ActivityLog';
 import ChatPanel from './ui/ChatPanel';
-import BrainPanel from './ui/BrainPanel';
+import BrainModal from './ui/BrainModal';
+import TasksModal from './ui/TasksModal';
+import SettingsModal from './ui/SettingsModal';
 import './styles/animations.css';
 
 // Posición inicial de Arq (en su taller)
@@ -102,8 +104,13 @@ export default function App() {
   // Contador de memorias
   const [memoryCount, setMemoryCount] = useState(getMemoryCount());
 
-  // Panel de cerebro
-  const [isBrainPanelOpen, setIsBrainPanelOpen] = useState(false);
+  // Modales
+  const [isBrainModalOpen, setIsBrainModalOpen] = useState(false);
+  const [isTasksModalOpen, setIsTasksModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  // Velocidad del tiempo
+  const [timeSpeed, setTimeSpeed] = useState(1);
 
   // Tipo de thought (micro, medium, deep)
   const [thoughtType, setThoughtType] = useState(null);
@@ -864,9 +871,9 @@ export default function App() {
         location={currentLocation}
         iaCalls={stats.iaCalls}
         elapsedTime={elapsedTime}
-        onBrainClick={() => setIsBrainPanelOpen(true)}
-        onTasksClick={() => {}} // TODO: Panel de tareas
-        onSettingsClick={() => {}} // TODO: Panel de settings
+        onBrainClick={() => setIsBrainModalOpen(true)}
+        onTasksClick={() => setIsTasksModalOpen(true)}
+        onSettingsClick={() => setIsSettingsModalOpen(true)}
         genesisTime={genesisTime}
         resources={resources}
       />
@@ -929,10 +936,21 @@ export default function App() {
         />
       </main>
 
-      {/* Panel de Cerebro (overlay) */}
-      <BrainPanel
-        isOpen={isBrainPanelOpen}
-        onClose={() => setIsBrainPanelOpen(false)}
+      {/* Modales */}
+      <BrainModal
+        isOpen={isBrainModalOpen}
+        onClose={() => setIsBrainModalOpen(false)}
+        currentMood={mood}
+      />
+      <TasksModal
+        isOpen={isTasksModalOpen}
+        onClose={() => setIsTasksModalOpen(false)}
+      />
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        timeSpeed={timeSpeed}
+        onTimeSpeedChange={setTimeSpeed}
       />
     </div>
   );

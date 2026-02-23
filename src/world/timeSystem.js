@@ -4,9 +4,14 @@
 
 const GENESIS_DAY_MINUTES = 20; // 20 minutos reales = 1 día Genesis
 
-// Estado del tiempo
+// Multiplicador de velocidad del usuario (1 = normal, 2 = doble velocidad, etc.)
+let userSpeedMultiplier = 1;
+
+// Estado del tiempo (con acumulador para cambios de velocidad)
 let timeState = {
   startTime: Date.now(),
+  accumulatedMinutes: 0, // Minutos acumulados antes del último cambio de velocidad
+  lastSpeedChangeTime: Date.now(),
   currentMinute: 0,  // 0-20 minutos Genesis
   phase: 'morning',  // morning, day, afternoon, night
   day: 1,
@@ -16,11 +21,33 @@ let timeState = {
 const listeners = new Set();
 
 /**
+ * Establece la velocidad del tiempo
+ * @param {number} speed - Multiplicador (0.5, 1, 2, 5, etc.)
+ */
+export function setTimeSpeed(speed) {
+  // Acumular el tiempo transcurrido con la velocidad anterior
+  const now = Date.now();
+  const elapsedSinceLastChange = (now - timeState.lastSpeedChangeTime) / 60000;
+  timeState.accumulatedMinutes += elapsedSinceLastChange * userSpeedMultiplier;
+  timeState.lastSpeedChangeTime = now;
+  userSpeedMultiplier = speed;
+  console.log(`[timeSystem] Velocidad: ${speed}x`);
+}
+
+/**
+ * Obtiene la velocidad actual del tiempo
+ */
+export function getTimeSpeed() {
+  return userSpeedMultiplier;
+}
+
+/**
  * Obtiene el minuto actual de Genesis (0-20)
  */
 export function getGenesisMinute() {
-  const elapsed = Date.now() - timeState.startTime;
-  const totalMinutes = elapsed / 60000; // minutos reales
+  const now = Date.now();
+  const elapsedSinceLastChange = (now - timeState.lastSpeedChangeTime) / 60000;
+  const totalMinutes = timeState.accumulatedMinutes + (elapsedSinceLastChange * userSpeedMultiplier);
   return totalMinutes % GENESIS_DAY_MINUTES;
 }
 
@@ -28,8 +55,9 @@ export function getGenesisMinute() {
  * Obtiene el día actual de Genesis
  */
 export function getGenesisDay() {
-  const elapsed = Date.now() - timeState.startTime;
-  const totalMinutes = elapsed / 60000;
+  const now = Date.now();
+  const elapsedSinceLastChange = (now - timeState.lastSpeedChangeTime) / 60000;
+  const totalMinutes = timeState.accumulatedMinutes + (elapsedSinceLastChange * userSpeedMultiplier);
   return Math.floor(totalMinutes / GENESIS_DAY_MINUTES) + 1;
 }
 

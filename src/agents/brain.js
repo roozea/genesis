@@ -226,60 +226,136 @@ export async function decideNextMove(currentLocation, lastLocations, mood, lastC
 
   // Generar prompt con memorias
   const prompt = getMovementPrompt(currentLocation, lastLocations, mood, lastChatMessage, memoriesText);
+  const validKeys = getLocationKeys();
+
+  console.log('[BRAIN] Prompt de movimiento:', prompt.slice(0, 200) + '...');
+  console.log('[BRAIN] Llamando think tier fast...');
 
   try {
     // Usar el sistema de fallback chain
     const result = await think(prompt, 'Decide a dónde ir.', 'fast');
 
+    console.log('[BRAIN] Respuesta de think:', result.source, '|', result.response?.slice(0, 100));
+
     // Si llegamos a fallback, usar decisión random
     if (result.source === 'fallback' || !result.response) {
-      console.log('[brain] Usando fallback random');
+      console.log('[BRAIN] ❌ Think retornó fallback, usando random');
       return randomDecision(currentLocation, lastLocations);
     }
 
-    // Intentar parsear la respuesta JSON
-    const jsonMatch = result.response.match(/\{[^}]+\}/);
-    if (!jsonMatch) {
-      console.warn('[brain] No se pudo parsear JSON de', result.source);
-      return randomDecision(currentLocation, lastLocations);
+    const responseText = result.response;
+
+    // MÉTODO 1: Intentar parsear JSON
+    const jsonMatch = responseText.match(/\{[\s\S]*?\}/);
+    if (jsonMatch) {
+      try {
+        const decision = JSON.parse(jsonMatch[0]);
+        console.log('[BRAIN] ✓ JSON parseado:', decision);
+
+        // Validar destino
+        if (decision.d && validKeys.includes(decision.d)) {
+          // Validar que no sea el mismo lugar ni los últimos 2
+          if (decision.d !== currentLocation && !lastLocations.slice(-2).includes(decision.d)) {
+            // Validar mood
+            if (!decision.m || !MOODS.includes(decision.m)) {
+              decision.m = mood;
+            }
+            console.log('[BRAIN] ✓ Decisión válida desde JSON:', decision.d);
+            return {
+              destination: decision.d,
+              thought: decision.t || 'Vamos allá... 🚶',
+              mood: decision.m,
+              source: result.source,
+            };
+          }
+        }
+        console.log('[BRAIN] JSON válido pero destino inválido:', decision.d);
+      } catch (parseError) {
+        console.log('[BRAIN] JSON parse falló:', parseError.message);
+      }
     }
 
-    let decision;
-    try {
-      decision = JSON.parse(jsonMatch[0]);
-    } catch (parseError) {
-      console.warn('[brain] JSON inválido:', parseError.message);
-      return randomDecision(currentLocation, lastLocations);
+    // MÉTODO 2: Buscar nombre de ubicación directamente en el texto
+    console.log('[BRAIN] Intentando extraer destino del texto libre...');
+    const textLower = responseText.toLowerCase();
+
+    for (const key of validKeys) {
+      if (key === currentLocation || lastLocations.slice(-2).includes(key)) continue;
+
+      // Buscar la clave exacta o el nombre del lugar
+      const locationName = LOCATIONS[key]?.name?.toLowerCase() || '';
+      if (textLower.includes(key) || (locationName && textLower.includes(locationName))) {
+        console.log('[BRAIN] ✓ Destino encontrado en texto:', key);
+        return {
+          destination: key,
+          thought: extractThoughtFromText(responseText) || 'Vamos... 🚶',
+          mood: extractMoodFromText(responseText) || mood,
+          source: result.source,
+        };
+      }
     }
 
-    // Validar destino
-    const validKeys = getLocationKeys();
-    if (!decision.d || !validKeys.includes(decision.d)) {
-      console.warn('[brain] Destino inválido:', decision.d);
-      return randomDecision(currentLocation, lastLocations);
-    }
-
-    // Validar que no sea el mismo lugar ni los últimos 2
-    if (decision.d === currentLocation || lastLocations.slice(-2).includes(decision.d)) {
-      console.warn('[brain] Destino repetido, eligiendo otro');
-      return randomDecision(currentLocation, lastLocations);
-    }
-
-    // Validar mood
-    if (!decision.m || !MOODS.includes(decision.m)) {
-      decision.m = mood; // Mantener mood actual
-    }
-
-    return {
-      destination: decision.d,
-      thought: decision.t || '...',
-      mood: decision.m,
-      source: result.source, // 'local', 'haiku', o 'sonnet'
+    // MÉTODO 3: Buscar con regex palabras clave de lugares
+    const placeKeywords = {
+      'lago': 'lakeshore', 'orilla': 'lakeshore', 'agua': 'lakeshore',
+      'jardin': 'garden', 'jardín': 'garden', 'flores': 'garden',
+      'taller': 'workshop', 'casa': 'workshop',
+      'bosque': 'forest', 'árboles': 'forest', 'arboles': 'forest',
+      'cruce': 'crossroad', 'centro': 'crossroad',
+      'pradera': 'meadow', 'pasto': 'meadow', 'campo': 'meadow',
+      'este': 'eastpath', 'camino': 'eastpath',
     };
+
+    for (const [word, key] of Object.entries(placeKeywords)) {
+      if (key === currentLocation || lastLocations.slice(-2).includes(key)) continue;
+      if (textLower.includes(word)) {
+        console.log('[BRAIN] ✓ Destino por keyword:', key, '(matched:', word, ')');
+        return {
+          destination: key,
+          thought: extractThoughtFromText(responseText) || 'Vamos... 🚶',
+          mood: extractMoodFromText(responseText) || mood,
+          source: result.source,
+        };
+      }
+    }
+
+    console.log('[BRAIN] ❌ No se pudo extraer destino, usando random');
+    return randomDecision(currentLocation, lastLocations);
+
   } catch (error) {
-    console.error('[brain] Error en decisión IA:', error);
+    console.error('[BRAIN] ❌ Error en decisión IA:', error.message);
     return randomDecision(currentLocation, lastLocations);
   }
+}
+
+/**
+ * Extrae un pensamiento corto del texto de respuesta
+ */
+function extractThoughtFromText(text) {
+  // Buscar algo entre comillas o después de "pensamiento:" etc.
+  const quoteMatch = text.match(/["']([^"']{5,50})["']/);
+  if (quoteMatch) return quoteMatch[1];
+
+  // Tomar la primera oración corta
+  const sentences = text.split(/[.!?]+/);
+  for (const s of sentences) {
+    const trimmed = s.trim();
+    if (trimmed.length > 5 && trimmed.length < 50) {
+      return trimmed;
+    }
+  }
+  return null;
+}
+
+/**
+ * Extrae el mood del texto si está mencionado
+ */
+function extractMoodFromText(text) {
+  const textLower = text.toLowerCase();
+  for (const m of MOODS) {
+    if (textLower.includes(m)) return m;
+  }
+  return null;
 }
 
 /**
