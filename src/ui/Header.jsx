@@ -1,11 +1,23 @@
-// GENESIS — Barra superior con stats del agente
+// GENESIS — Barra superior con stats del agente (2 filas compactas)
 import { useState, useEffect } from 'react';
 import { PALETTE } from '../config/palette';
 import { MOOD_EMOJI } from '../agents/prompts';
 import { LOCATIONS } from '../world/locations';
 import { onStateChange } from '../config/llm';
 
-export default function Header({ level, xp, mood, location, iaCalls, elapsedTime, memoryCount = 0, onBrainClick, genesisTime, resources }) {
+export default function Header({
+  level,
+  xp,
+  mood,
+  location,
+  iaCalls,
+  elapsedTime,
+  onBrainClick,
+  onTasksClick,
+  onSettingsClick,
+  genesisTime,
+  resources,
+}) {
   const [llmState, setLlmState] = useState({ currentSource: 'checking' });
 
   // Suscribirse a cambios del estado LLM
@@ -14,13 +26,13 @@ export default function Header({ level, xp, mood, location, iaCalls, elapsedTime
     return unsubscribe;
   }, []);
 
-  const xpPercent = (xp % 100);
+  const xpPercent = xp % 100;
   const moodEmoji = MOOD_EMOJI[mood] || '🧐';
   const locationData = LOCATIONS[location];
   const locationName = locationData?.name || 'Explorando';
   const locationEmoji = locationData?.emoji || '🗺️';
 
-  // Formato de tiempo: MM:SS
+  // Formato de tiempo real: MM:SS
   const minutes = Math.floor(elapsedTime / 60);
   const seconds = elapsedTime % 60;
   const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
@@ -38,112 +50,109 @@ export default function Header({ level, xp, mood, location, iaCalls, elapsedTime
   return (
     <header
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '12px 20px',
         backgroundColor: PALETTE.panel,
         borderBottom: `2px solid ${PALETTE.panelBorder}`,
         fontFamily: '"Press Start 2P", monospace',
-        fontSize: 10,
-        color: PALETTE.text,
+        flexShrink: 0,
       }}
     >
-      {/* Logo / Título */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 14 }}>🏗️</span>
-        <span style={{ color: PALETTE.accent, fontWeight: 'bold' }}>GENESIS</span>
-        <span style={{ color: PALETTE.textDim, fontSize: 8 }}>Phase 0</span>
-      </div>
-
-      {/* Stats */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-        {/* Indicador de fuente IA */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '4px 10px',
-            backgroundColor: PALETTE.bg,
-            borderRadius: 4,
-            border: `1px solid ${source.color}`,
-          }}
-        >
-          <span>{source.emoji}</span>
-          <span style={{ color: source.color, fontSize: 8 }}>{source.label}</span>
+      {/* FILA 1: Principal */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '8px 16px',
+          fontSize: 9,
+          color: PALETTE.text,
+        }}
+      >
+        {/* Logo / Título */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 14 }}>🏗️</span>
+          <span style={{ color: PALETTE.accent, fontWeight: 'bold' }}>GENESIS</span>
+          <span style={{ color: PALETTE.textDim, fontSize: 7 }}>Phase 0</span>
         </div>
 
-        {/* Contador de memorias + Botón Cerebro */}
-        <button
-          onClick={onBrainClick}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '4px 10px',
-            backgroundColor: PALETTE.bg,
-            border: `1px solid ${PALETTE.accent}`,
-            borderRadius: 4,
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            fontSize: 'inherit',
-            color: PALETTE.text,
-            transition: 'all 0.2s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = PALETTE.accent;
-            e.currentTarget.style.color = PALETTE.bg;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = PALETTE.bg;
-            e.currentTarget.style.color = PALETTE.text;
-          }}
-          title="Ver cerebro de Arq"
-        >
-          <span>🧠</span>
-          <span style={{ color: 'inherit' }}>{memoryCount}</span>
-        </button>
-
-        {/* Recursos */}
-        {resources && (
+        {/* Centro: Indicador IA + Recursos */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {/* Indicador de fuente IA */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
-              padding: '4px 10px',
+              gap: 4,
+              padding: '3px 8px',
               backgroundColor: PALETTE.bg,
               borderRadius: 4,
-              border: `1px solid ${PALETTE.panelBorder}`,
+              border: `1px solid ${source.color}`,
             }}
-            title="Recursos de trabajo"
           >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <span>📚</span>
-              <span style={{ color: '#80c0ff' }}>{resources.knowledge}</span>
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <span>🪨</span>
-              <span style={{ color: '#c0a080' }}>{resources.materials}</span>
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <span>✨</span>
-              <span style={{ color: '#ffc040' }}>{resources.inspiration}</span>
-            </span>
+            <span style={{ fontSize: 10 }}>{source.emoji}</span>
+            <span style={{ color: source.color, fontSize: 7 }}>{source.label}</span>
           </div>
-        )}
 
-        {/* Nivel con barra de XP */}
+          {/* Recursos */}
+          {resources && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '3px 10px',
+                backgroundColor: PALETTE.bg,
+                borderRadius: 4,
+                border: `1px solid ${PALETTE.panelBorder}`,
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <span style={{ fontSize: 10 }}>📚</span>
+                <span style={{ color: '#80c0ff', fontSize: 8 }}>{resources.knowledge}</span>
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <span style={{ fontSize: 10 }}>🪨</span>
+                <span style={{ color: '#c0a080', fontSize: 8 }}>{resources.materials}</span>
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <span style={{ fontSize: 10 }}>✨</span>
+                <span style={{ color: '#ffc040', fontSize: 8 }}>{resources.inspiration}</span>
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Derecha: Botones de paneles */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ color: PALETTE.textDim }}>LVL</span>
+          <HeaderButton emoji="🧠" title="Cerebro de Arq" onClick={onBrainClick} />
+          <HeaderButton emoji="📋" title="Tareas" onClick={onTasksClick} />
+          <HeaderButton emoji="⚙️" title="Configuración" onClick={onSettingsClick} />
+        </div>
+      </div>
+
+      {/* FILA 2: Stats secundarios */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 24,
+          padding: '4px 16px 6px',
+          fontSize: 7,
+          color: PALETTE.textDim,
+          borderTop: `1px solid ${PALETTE.panelBorder}`,
+          backgroundColor: 'rgba(0,0,0,0.15)',
+        }}
+      >
+        {/* Nivel con barra de XP */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span>LVL</span>
           <span style={{ color: PALETTE.accent }}>{level}</span>
           <div
             style={{
-              width: 50,
-              height: 6,
+              width: 40,
+              height: 4,
               backgroundColor: PALETTE.bg,
-              borderRadius: 3,
+              borderRadius: 2,
               overflow: 'hidden',
             }}
           >
@@ -158,59 +167,95 @@ export default function Header({ level, xp, mood, location, iaCalls, elapsedTime
           </div>
         </div>
 
+        <span style={{ color: '#333' }}>│</span>
+
         {/* Mood */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ color: PALETTE.textDim }}>MOOD</span>
-          <span>{moodEmoji}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span>MOOD</span>
+          <span style={{ fontSize: 10 }}>{moodEmoji}</span>
         </div>
+
+        <span style={{ color: '#333' }}>│</span>
 
         {/* Ubicación */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>{locationEmoji}</span>
-          <span style={{ color: PALETTE.text, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {locationName}
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 10 }}>{locationEmoji}</span>
+          <span style={{ color: PALETTE.text }}>{locationName}</span>
         </div>
 
+        <span style={{ color: '#333' }}>│</span>
+
         {/* Contador IA */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ color: PALETTE.textDim }}>IA</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span>IA</span>
           <span style={{ color: PALETTE.accentRed }}>{iaCalls}</span>
         </div>
 
-        {/* Hora Genesis (día/noche) */}
+        <span style={{ color: '#333' }}>│</span>
+
+        {/* Hora Genesis */}
         {genesisTime && (
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
-              padding: '4px 10px',
-              backgroundColor: genesisTime.isNight ? 'rgba(30, 40, 80, 0.5)' : PALETTE.bg,
-              borderRadius: 4,
-              border: `1px solid ${genesisTime.isNight ? '#4060a0' : PALETTE.panelBorder}`,
-              transition: 'all 1s ease',
+              gap: 4,
+              padding: '2px 6px',
+              backgroundColor: genesisTime.isNight ? 'rgba(30, 40, 80, 0.5)' : 'transparent',
+              borderRadius: 3,
             }}
           >
-            <span>{genesisTime.icon}</span>
-            <span
-              style={{
-                color: genesisTime.isNight ? '#8090c0' : PALETTE.text,
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            >
+            <span style={{ fontSize: 10 }}>{genesisTime.icon}</span>
+            <span style={{ color: genesisTime.isNight ? '#8090c0' : PALETTE.text }}>
               {genesisTime.time.formatted}
             </span>
-            <span style={{ color: PALETTE.textDim, fontSize: 7 }}>D{genesisTime.day}</span>
+            <span style={{ fontSize: 6 }}>D{genesisTime.day}</span>
           </div>
         )}
 
+        <span style={{ color: '#333' }}>│</span>
+
         {/* Timer real */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ color: PALETTE.textDim }}>⏱️</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span>⏱️</span>
           <span style={{ color: PALETTE.text, fontVariantNumeric: 'tabular-nums' }}>{timeStr}</span>
         </div>
       </div>
     </header>
+  );
+}
+
+// Botón del header
+function HeaderButton({ emoji, title, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 28,
+        height: 28,
+        padding: 0,
+        backgroundColor: PALETTE.bg,
+        border: `1px solid ${PALETTE.panelBorder}`,
+        borderRadius: 4,
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+        fontSize: 12,
+        transition: 'all 0.2s ease',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = PALETTE.accent;
+        e.currentTarget.style.borderColor = PALETTE.accent;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = PALETTE.bg;
+        e.currentTarget.style.borderColor = PALETTE.panelBorder;
+      }}
+      title={title}
+    >
+      {emoji}
+    </button>
   );
 }

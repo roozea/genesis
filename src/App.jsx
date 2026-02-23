@@ -849,13 +849,14 @@ export default function App() {
   return (
     <div
       style={{
-        minHeight: '100vh',
+        height: '100vh',
         backgroundColor: PALETTE.bg,
         display: 'flex',
         flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
-      {/* Header con stats */}
+      {/* Header con stats (2 filas compactas) */}
       <Header
         level={stats.level}
         xp={stats.xp}
@@ -863,50 +864,60 @@ export default function App() {
         location={currentLocation}
         iaCalls={stats.iaCalls}
         elapsedTime={elapsedTime}
-        memoryCount={memoryCount}
         onBrainClick={() => setIsBrainPanelOpen(true)}
+        onTasksClick={() => {}} // TODO: Panel de tareas
+        onSettingsClick={() => {}} // TODO: Panel de settings
         genesisTime={genesisTime}
         resources={resources}
       />
 
-      {/* Contenido principal */}
+      {/* Contenido principal - ocupa todo el espacio restante */}
       <main
         style={{
           flex: 1,
           display: 'grid',
           gridTemplateColumns: '1fr 380px',
-          gap: 16,
-          padding: 16,
+          gap: 12,
+          padding: 12,
+          minHeight: 0, // Importante para que flex funcione con overflow
         }}
       >
         {/* Columna izquierda: Mapa + Log */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Mapa */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+            minHeight: 0,
+          }}
+        >
+          {/* Mapa (tamaño fijo basado en contenido) */}
           <div
             style={{
               display: 'flex',
               justifyContent: 'center',
-              padding: 16,
+              padding: 12,
               backgroundColor: PALETTE.panel,
-              borderRadius: 8,
+              borderRadius: 6,
               border: `1px solid ${PALETTE.panelBorder}`,
+              flexShrink: 0,
             }}
           >
             <GameMap
-                agent={agent}
-                thought={thought}
-                thoughtType={thoughtType}
-                timeFilter={genesisTime.filter}
-                workProgress={workProgress}
-                floatingRewards={floatingRewards}
-              />
+              agent={agent}
+              thought={thought}
+              thoughtType={thoughtType}
+              timeFilter={genesisTime.filter}
+              workProgress={workProgress}
+              floatingRewards={floatingRewards}
+            />
           </div>
 
-          {/* Log de actividad */}
+          {/* Log de actividad (llena todo el espacio restante) */}
           <ActivityLog logs={logs} />
         </div>
 
-        {/* Columna derecha: Chat */}
+        {/* Columna derecha: Chat (ocupa todo el alto) */}
         <ChatPanel
           messages={messages}
           onSendMessage={handleSendMessage}
