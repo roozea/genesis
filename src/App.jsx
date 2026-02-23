@@ -41,6 +41,12 @@ import {
   onChatMessage,
   setThoughtBubbleCallback,
 } from './agents/reflectionManager';
+import {
+  onTimeChange,
+  getTimeState,
+  getTimeBehavior,
+  isNight,
+} from './world/timeSystem';
 import { LOCATIONS } from './world/locations';
 import GameMap from './world/GameMap';
 import Header from './ui/Header';
@@ -52,7 +58,7 @@ import './styles/animations.css';
 // Posición inicial de Arq (en su taller)
 const INITIAL_POSITION = { row: 4, col: 3 };
 const MOVE_INTERVAL = 35000; // 35-50 segundos para moverse
-const STEP_DELAY = 450; // Delay entre pasos (ms)
+const BASE_STEP_DELAY = 450; // Delay base entre pasos (ms)
 
 export default function App() {
   // Estado del agente
@@ -85,9 +91,14 @@ export default function App() {
   // Tipo de thought (micro, medium, deep)
   const [thoughtType, setThoughtType] = useState(null);
 
+  // Sistema de tiempo Genesis (día/noche)
+  const [genesisTime, setGenesisTime] = useState(getTimeState());
+
   // Refs para intervalos
   const moveIntervalRef = useRef(null);
   const isWalkingRef = useRef(false);
+  const isGoingHomeRef = useRef(false); // Para evitar múltiples "ir a casa"
+  const lastNightThoughtRef = useRef(0); // Para no spamear thoughts nocturnos
 
   // Ubicación actual
   const currentLocation = getCurrentLocationKey(agent.row, agent.col);
@@ -158,6 +169,14 @@ export default function App() {
     };
   }, [addLog]);
 
+  // Sistema de tiempo Genesis - día/noche
+  useEffect(() => {
+    const unsubscribe = onTimeChange((timeState) => {
+      setGenesisTime(timeState);
+    });
+    return unsubscribe;
+  }, []);
+
   // Caminar paso a paso por el path
   // Retorna true si completó, false si fue cancelado
   const walkPath = useCallback(async (path, finalThought, startPos, destinationKey) => {
@@ -192,7 +211,11 @@ export default function App() {
       });
 
       prevPos = step;
-      await new Promise(resolve => setTimeout(resolve, STEP_DELAY));
+
+      // Velocidad ajustada según hora del día
+      const behavior = getTimeBehavior();
+      const stepDelay = Math.round(BASE_STEP_DELAY / behavior.speedMultiplier);
+      await new Promise(resolve => setTimeout(resolve, stepDelay));
     }
 
     // Terminar caminata (ya sea por llegar o por cancelación)
@@ -232,6 +255,7 @@ export default function App() {
   // Decidir próximo movimiento con IA
   const makeDecision = useCallback(async () => {
     const worldState = getWorldState();
+    const timeBehavior = getTimeBehavior();
 
     // Si hay forcedDestination, esperar a que termine la caminata actual
     // (el flag cancelCurrentPath ya habrá sido seteado)
@@ -245,6 +269,53 @@ export default function App() {
       // Si no hay destino forzado, simplemente salir
       return;
     }
+
+    // COMPORTAMIENTO NOCTURNO: Arq debe volver al taller y quedarse idle
+    if (timeBehavior.shouldGoHome) {
+      // Si ya está en el taller, quedarse idle
+      if (currentLocation === 'workshop') {
+        // Mostrar thought de descanso (máximo cada 60 segundos)
+        const now = Date.now();
+        if (now - lastNightThoughtRef.current > 60000) {
+          lastNightThoughtRef.current = now;
+          const nightThoughts = [
+            'Hora de descansar... 🌙',
+            'El taller es acogedor de noche... 💤',
+            'Mañana seguiré explorando... 🌟',
+            'Genesis duerme, yo también... 🌙',
+          ];
+          const randomThought = nightThoughts[Math.floor(Math.random() * nightThoughts.length)];
+          setThought(randomThought);
+          setThoughtType('night');
+          setTimeout(() => {
+            setThought(null);
+            setThoughtType(null);
+          }, 5000);
+          addLog('night', randomThought, '🌙');
+        }
+        isGoingHomeRef.current = false;
+        return; // No hacer nada más de noche
+      }
+
+      // Si no está en el taller, ir hacia allá
+      if (!isGoingHomeRef.current) {
+        isGoingHomeRef.current = true;
+        addLog('night', 'Es de noche, volviendo al taller...', '🌙');
+
+        const path = calculatePath(agent.row, agent.col, 'workshop');
+        if (path.length > 0) {
+          setMoodState('sleepy');
+          setMood('sleepy');
+          await walkPath(path, 'Hora de descansar... 🌙', { row: agent.row, col: agent.col }, 'workshop');
+        }
+        isGoingHomeRef.current = false;
+        return;
+      }
+      return;
+    }
+
+    // Reset del flag de ir a casa cuando no es de noche
+    isGoingHomeRef.current = false;
 
     const lastChatMessage = messages.length > 0 ? messages[messages.length - 1]?.content : '';
 
@@ -447,6 +518,7 @@ export default function App() {
         elapsedTime={elapsedTime}
         memoryCount={memoryCount}
         onBrainClick={() => setIsBrainPanelOpen(true)}
+        genesisTime={genesisTime}
       />
 
       {/* Contenido principal */}
@@ -472,7 +544,7 @@ export default function App() {
               border: `1px solid ${PALETTE.panelBorder}`,
             }}
           >
-            <GameMap agent={agent} thought={thought} thoughtType={thoughtType} />
+            <GameMap agent={agent} thought={thought} thoughtType={thoughtType} timeFilter={genesisTime.filter} />
           </div>
 
           {/* Log de actividad */}

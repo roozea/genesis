@@ -160,19 +160,35 @@ export default function AgentSprite({ row, col, direction = 'right', state = 'id
 }
 
 // Componente del thought bubble
-// type: 'micro' | 'medium' | 'deep' | null (normal)
+// type: 'micro' | 'medium' | 'deep' | 'night' | null (normal)
 function ThoughtBubble({ text, type }) {
   // Estilos según tipo de reflexión
   const isDeep = type === 'deep';
   const isMedium = type === 'medium';
-  const isSpecial = isDeep || isMedium;
+  const isNight = type === 'night';
+  const isSpecial = isDeep || isMedium || isNight;
 
   // Colores según tipo
-  const borderColor = isDeep ? '#a080ff' : isMedium ? '#ffd700' : PALETTE.panelBorder;
-  const glowAnimation = isDeep ? 'purpleGlow 2s ease-in-out infinite' :
-                        isMedium ? 'goldenGlow 2s ease-in-out infinite' : 'none';
-  const entryAnimation = isDeep ? 'deepBubbleIn 0.5s ease-out' :
-                         isSpecial ? 'bubbleIn 0.4s ease-out' : 'bubbleIn 0.3s ease-out';
+  const borderColor = isDeep ? '#a080ff'
+    : isMedium ? '#ffd700'
+    : isNight ? '#4060a0'
+    : PALETTE.panelBorder;
+
+  const glowAnimation = isDeep ? 'purpleGlow 2s ease-in-out infinite'
+    : isMedium ? 'goldenGlow 2s ease-in-out infinite'
+    : isNight ? 'nightGlow 3s ease-in-out infinite'
+    : 'none';
+
+  const entryAnimation = isDeep ? 'deepBubbleIn 0.5s ease-out'
+    : isSpecial ? 'bubbleIn 0.4s ease-out'
+    : 'bubbleIn 0.3s ease-out';
+
+  const textColor = isDeep ? '#e0d0ff'
+    : isMedium ? '#fff8e0'
+    : isNight ? '#a0b0d0'
+    : PALETTE.text;
+
+  const bgColor = isNight ? 'rgba(20, 25, 50, 0.95)' : 'rgba(16, 16, 42, 0.95)';
 
   return (
     <div
@@ -181,13 +197,13 @@ function ThoughtBubble({ text, type }) {
         bottom: '105%',
         left: '50%',
         transform: 'translateX(-50%)',
-        backgroundColor: 'rgba(16, 16, 42, 0.95)',
+        backgroundColor: bgColor,
         border: `2px solid ${borderColor}`,
         borderRadius: 8,
         padding: isSpecial ? '8px 12px' : '6px 10px',
         fontFamily: '"Press Start 2P", monospace',
         fontSize: isSpecial ? 9 : 8,
-        color: isDeep ? '#e0d0ff' : isMedium ? '#fff8e0' : PALETTE.text,
+        color: textColor,
         whiteSpace: 'nowrap',
         maxWidth: isSpecial ? 220 : 180,
         overflow: 'hidden',
@@ -198,10 +214,12 @@ function ThoughtBubble({ text, type }) {
           ? '0 4px 20px rgba(160, 128, 255, 0.4)'
           : isMedium
           ? '0 4px 16px rgba(255, 215, 0, 0.3)'
+          : isNight
+          ? '0 4px 16px rgba(40, 60, 120, 0.5)'
           : '0 4px 12px rgba(0,0,0,0.4)',
       }}
     >
-      {/* Emoji de tipo */}
+      {/* El texto ya incluye el emoji para night */}
       {isDeep && <span style={{ marginRight: 6 }}>🌟</span>}
       {isMedium && <span style={{ marginRight: 6 }}>💡</span>}
       {text}

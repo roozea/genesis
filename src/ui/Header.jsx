@@ -5,7 +5,7 @@ import { MOOD_EMOJI } from '../agents/prompts';
 import { LOCATIONS } from '../world/locations';
 import { onStateChange } from '../config/llm';
 
-export default function Header({ level, xp, mood, location, iaCalls, elapsedTime, memoryCount = 0, onBrainClick }) {
+export default function Header({ level, xp, mood, location, iaCalls, elapsedTime, memoryCount = 0, onBrainClick, genesisTime }) {
   const [llmState, setLlmState] = useState({ currentSource: 'checking' });
 
   // Suscribirse a cambios del estado LLM
@@ -149,7 +149,34 @@ export default function Header({ level, xp, mood, location, iaCalls, elapsedTime
           <span style={{ color: PALETTE.accentRed }}>{iaCalls}</span>
         </div>
 
-        {/* Timer */}
+        {/* Hora Genesis (día/noche) */}
+        {genesisTime && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 10px',
+              backgroundColor: genesisTime.isNight ? 'rgba(30, 40, 80, 0.5)' : PALETTE.bg,
+              borderRadius: 4,
+              border: `1px solid ${genesisTime.isNight ? '#4060a0' : PALETTE.panelBorder}`,
+              transition: 'all 1s ease',
+            }}
+          >
+            <span>{genesisTime.icon}</span>
+            <span
+              style={{
+                color: genesisTime.isNight ? '#8090c0' : PALETTE.text,
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {genesisTime.time.formatted}
+            </span>
+            <span style={{ color: PALETTE.textDim, fontSize: 7 }}>D{genesisTime.day}</span>
+          </div>
+        )}
+
+        {/* Timer real */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ color: PALETTE.textDim }}>⏱️</span>
           <span style={{ color: PALETTE.text, fontVariantNumeric: 'tabular-nums' }}>{timeStr}</span>

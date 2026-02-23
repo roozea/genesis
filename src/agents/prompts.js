@@ -105,7 +105,7 @@ CONTEXTO: Estás en ${currentLocation}. Mood: ${mood}.
 /**
  * Lista de moods posibles
  */
-export const MOODS = ['curious', 'happy', 'focused', 'restless', 'calm'];
+export const MOODS = ['curious', 'happy', 'focused', 'restless', 'calm', 'sleepy', 'peaceful', 'energetic', 'tired'];
 
 /**
  * Emoji para cada mood
@@ -116,6 +116,10 @@ export const MOOD_EMOJI = {
   focused: '🎯',
   restless: '🌀',
   calm: '😌',
+  sleepy: '😴',
+  peaceful: '🌸',
+  energetic: '⚡',
+  tired: '😪',
 };
 
 /**
