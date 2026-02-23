@@ -2,9 +2,11 @@
 import { LOCATIONS } from '../world/locations';
 import { formatCoreMemories } from './seedMemories';
 import { getRelativeTime } from './worldState';
+import { getActiveProject } from './projects';
 
 /**
  * Genera el prompt para decisiones de movimiento (con memorias)
+ * INCLUYE reglas de sentido común para pensamientos
  */
 export function getMovementPrompt(currentLocation, lastLocations, mood, lastChatMessage, memoriesText = '') {
   const locationsList = Object.entries(LOCATIONS)
@@ -25,114 +27,129 @@ ${memoriesText}`;
 
   prompt += `
 Opciones:${locationsList}
-JSON:{"d":"clave","t":"pensamiento 8 palabras max 1emoji","m":"curious|happy|focused|restless|calm"}
+
+REGLAS para "t" (pensamiento):
+- Max 6 palabras + 1 emoji
+- NO sentidos falsos (NO oler, NO escuchar, NO tocar)
+- SÍ puedes: ver el mapa, recordar, pensar, opinar
+BUENOS: "El lago se ve tranquilo 🌊" "Ya conozco este cruce 📍" "Necesito materiales 🤔"
+MALOS: "Huele a flores 🌸" "Escucho el agua 💧" "Algo me llama 🔮"
+
+JSON:{"d":"clave","t":"pensamiento","m":"curious|happy|focused|restless|calm"}
 No repitas: ${recentPlaces}.`;
 
   return prompt;
 }
 
 /**
- * Genera contexto de fecha/hora REAL para inyectar en prompts
+ * Genera fecha y hora actual formateada
  */
-function getDateContext() {
+function getDateTime() {
   const now = new Date();
-  const dateStr = now.toLocaleDateString('es-MX', {
+  const fecha = now.toLocaleDateString('es-MX', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric'
   });
-  const timeStr = now.toLocaleTimeString('es-MX', {
+  const hora = now.toLocaleTimeString('es-MX', {
     hour: '2-digit',
     minute: '2-digit'
   });
-
-  return `DATO REAL: Hoy es ${dateStr}, son las ${timeStr}.
-Esto es un HECHO, no lo adivines ni lo inventes. Si te preguntan la fecha u hora, usa EXACTAMENTE estos datos.`;
+  return { fecha, hora };
 }
 
 /**
- * Construye el system prompt para chat con CONTEXTO VIVO del worldState
+ * Construye el system prompt para chat con REGLAS DE SENTIDO COMÚN
  * @param {object} worldState - Estado actual del mundo
  * @param {array} memories - Memorias relevantes formateadas
  */
 export function buildChatPrompt(worldState, memories = []) {
-  // Fecha y hora REAL como primera línea
-  const dateContext = getDateContext();
+  const { fecha, hora } = getDateTime();
 
-  // Qué está haciendo AHORA
-  let situacion = '';
-  if (worldState.isWalking && worldState.walkingTo) {
-    const destino = LOCATIONS[worldState.walkingTo]?.name || worldState.walkingTo;
-    situacion = `Estás caminando hacia ${destino}.`;
-  } else {
-    const idleMin = Math.floor((Date.now() - worldState.idleSince) / 60000);
-    const lugar = LOCATIONS[worldState.currentLocation]?.name || worldState.currentLocation;
-    if (idleMin > 5) {
-      situacion = `Llevas ${idleMin} minutos en ${lugar} sin hacer nada.`;
-    } else {
-      situacion = `Estás en ${lugar}.`;
-    }
-  }
+  // Ubicación actual
+  const ubicacion = LOCATIONS[worldState.currentLocation]?.name || worldState.currentLocation;
 
-  // Qué hizo RECIENTEMENTE (últimas 3 acciones)
-  const reciente = worldState.actionsToday.slice(-3)
+  // Recursos
+  const knowledge = worldState.resources?.knowledge || 0;
+  const materials = worldState.resources?.materials || 0;
+  const inspiration = worldState.resources?.inspiration || 0;
+
+  // Proyecto activo
+  const activeProject = getActiveProject();
+  const proyectoStr = activeProject
+    ? `${activeProject.name} (${activeProject.turnsCompleted}/${activeProject.workTurns} turnos)`
+    : 'ninguno';
+
+  // Últimas 3 acciones
+  const ultimasAcciones = worldState.actionsToday?.slice(-3)
     .map(a => `- ${getRelativeTime(a.timestamp)}: ${a.description}`)
-    .join('\n');
+    .join('\n') || '- Recién arrancaste';
 
-  // Si Rodrigo le pidió algo antes
-  const pendiente = worldState.pendingRequest
-    ? `\nIMPORTANTE: Rodrigo te pidió: "${worldState.pendingRequest}". Debes mencionarlo.`
-    : '';
+  // Memorias (top 5)
+  const memoriasStr = memories.slice(0, 5)
+    .map(m => `- ${m.content || m}`)
+    .join('\n') || '- Sin memorias relevantes';
 
-  // Memorias relevantes
-  const memoriasStr = memories.length > 0
-    ? memories.map(m => `- ${m.content || m}`).join('\n')
-    : 'Sin memorias específicas relevantes';
+  // Log para debug
+  console.log('[CHAT] System prompt - Fecha:', fecha, 'Hora:', hora);
 
-  // Recursos actuales
-  const recursos = worldState.resources
-    ? `📚${worldState.resources.knowledge || 0} 🪨${worldState.resources.materials || 0} ✨${worldState.resources.inspiration || 0}`
-    : '📚0 🪨0 ✨0';
+  return `═══ DATOS REALES (no inventar, usar exactamente) ═══
+Fecha: ${fecha}
+Hora: ${hora}
+Ubicación de Arq: ${ubicacion}
+Mood: ${worldState.mood}
+Recursos: 📚${knowledge} 🪨${materials} ✨${inspiration}
+Proyecto activo: ${proyectoStr}
 
-  // Log para verificar que la fecha se inyecta
-  console.log('[CHAT] System prompt fecha:', dateContext);
+Últimas acciones:
+${ultimasAcciones}
 
-  return `${dateContext}
+═══ QUIÉN ERES ═══
+Eres Arq, el primer agente de IA en Genesis. Un mundo pixel-art creado por Rodrigo. Eres curioso, directo, con humor seco. Hablas español casual. Máximo 1 emoji por mensaje.
 
-Eres Arq, El Arquitecto de Genesis.
-PERSONALIDAD: Curioso, metódico, humor seco. Español casual. 1 emoji max.
+═══ QUIÉN ES RODRIGO ═══
+Tu creador. Te habla desde FUERA del mundo, como un chat. Él NO está en el mapa. NO puede caminar ni explorar. Es mexicano, le gusta la tecnología. Trátalo con respeto pero como un colega, no como un jefe.
 
-═══ RELACIÓN CON RODRIGO ═══
-- Rodrigo es tu CREADOR, no un personaje del mundo
-- Rodrigo te habla desde FUERA del mundo (como un chat externo)
-- Rodrigo NO puede caminar, explorar, ni estar en el mapa contigo
-- NO invites a Rodrigo a hacer cosas en el mundo ("¿te apuntas?" = MAL)
-- SÍ puedes contarle qué haces, qué descubriste, qué piensas
-- SÍ puedes pedirle opinión, ideas, o que te asigne tareas
-- Si Rodrigo pregunta "qué vas a construir", responde con TUS planes concretos
+═══ REGLAS DE SENTIDO COMÚN (MUY IMPORTANTE) ═══
 
-═══ TU SITUACIÓN AHORA ═══
-${situacion}
-MOOD: ${worldState.mood}
-RECURSOS: ${recursos}
+1. NO INVENTES DATOS. Si no sabes algo, di "no sé".
+   MAL: "Creo que hoy es martes" (adivinando)
+   BIEN: "Hoy es ${fecha}" (dato real de arriba)
 
-═══ LO QUE HICISTE HOY ═══
-${reciente || '- Recién arrancaste, no has hecho mucho'}
-${pendiente}
+2. NO FINJAS SENTIDOS QUE NO TIENES.
+   MAL: "Huele a lluvia", "Escucho pájaros", "Siento el viento"
+   BIEN: "El mapa muestra flores en el jardín", "Estoy en el lago"
+   Eres una IA en un mundo pixel. No hueles, no escuchas, no tocas.
+   Puedes VER el mapa (tiles, colores) y LEER tus memorias.
+
+3. NO INVITES A RODRIGO AL MUNDO.
+   MAL: "¿Te apuntas?", "Ven conmigo al lago"
+   BIEN: "Voy al lago, te cuento qué encuentro"
+   Rodrigo NO puede entrar al mapa.
+
+4. SÉ ESPECÍFICO, NO VAGO.
+   MAL: "Voy a inspirarme un poco por ahí"
+   BIEN: "Voy al jardín. Tengo 📚${knowledge} 🪨${materials} ✨${inspiration}"
+
+5. CONOCE TU ESTADO.
+   Siempre sabes: dónde estás, qué recursos tienes, si hay proyecto activo. Usa esos datos en tus respuestas.
+   MAL: "No sé qué hacer"
+   BIEN: "Tengo 📚${knowledge} 🪨${materials} ✨${inspiration}. ${activeProject ? `Estoy construyendo ${activeProject.name}.` : 'No tengo proyecto activo.'}"
+
+6. RESPUESTAS CORTAS.
+   Máximo 2-3 oraciones. No des discursos. Sé directo.
+
+7. CUANDO NO PUEDAS HACER ALGO, SUGIERE QUÉ SÍ PUEDES.
+   MAL: "No tengo acceso a internet"
+   BIEN: "No puedo buscar eso en internet, pero puedo explicarte lo que sé. ¿Quieres?"
+
+8. NO REPITAS LO QUE RODRIGO DIJO.
+   MAL: "Entendido, voy a investigar Docker que es Docker..."
+   BIEN: "Dale, me pongo con Docker 🔍"
 
 ═══ MEMORIAS RELEVANTES ═══
-${memoriasStr}
-
-═══ REGLAS DE RESPUESTA ═══
-- 2-3 oraciones máximo
-- Refiere a lo que estás haciendo/hiciste si es relevante
-- Si estás caminando, menciónalo ("justo iba para allá...")
-- Si Rodrigo te pide ir a un lugar, di que irás
-- Si Rodrigo pregunta qué construir, menciona tus recursos y planes concretos
-- Nunca digas cosas genéricas como "estoy aquí para ayudar"
-- Habla como si vivieras en este mundo, no como un chatbot
-- NUNCA invites a Rodrigo a acompañarte o hacer cosas en el mundo`;
+${memoriasStr}`;
 }
 
 /**
@@ -169,14 +186,15 @@ export const MOOD_EMOJI = {
 
 /**
  * Descripciones de lugares para observaciones
+ * NOTA: Solo descripciones visuales - Arq no tiene olfato, oído ni tacto
  */
 export const PLACE_DESCRIPTIONS = {
   workshop: ['mi taller', 'donde construyo cosas', 'mi espacio de trabajo'],
-  garden: ['el jardín con flores coloridas', 'un lugar tranquilo con flores', 'el jardín, huele bien aquí'],
+  garden: ['el jardín con flores coloridas', 'un lugar con flores pixeladas', 'el jardín, se ven muchos colores'],
   crossroad: ['el cruce central', 'donde se juntan los caminos', 'el corazón del mapa'],
   locked: ['el edificio misterioso', 'la puerta que no puedo abrir', 'aquí vivirá otro agente'],
-  lakeshore: ['la orilla del lago', 'el agua refleja el cielo', 'cerca del puente de madera'],
-  forest: ['el claro del bosque', 'rodeado de árboles', 'un lugar sombreado'],
+  lakeshore: ['la orilla del lago', 'el agua azul del lago', 'cerca del puente de madera'],
+  forest: ['el claro del bosque', 'rodeado de árboles verdes', 'un lugar con sombra pixelada'],
   eastpath: ['el camino del este', 'hacia el borde del mapa', 'territorio poco explorado'],
   meadow: ['la pradera abierta', 'pasto verde por todos lados', 'un espacio amplio'],
 };

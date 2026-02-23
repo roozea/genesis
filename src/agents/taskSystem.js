@@ -5,6 +5,15 @@ import { think } from '../config/llm';
 import { addMemory, MEMORY_TYPES, retrieveMemories } from './memory';
 import { forceDestination, getWorldState, updateWorldState } from './worldState';
 
+// Reglas anti-invención compartidas por todos los tipos de tarea
+const REGLAS_NO_INVENTAR = `
+═══ REGLAS (MUY IMPORTANTE) ═══
+- Si no sabes algo con certeza, di "No tengo certeza sobre X"
+- NO inventes datos, URLs, estadísticas, ni fechas
+- NO uses placeholders como [fecha], [nombre], [url] — si no sabes el dato real, omítelo
+- Responde SOLO lo que sabes. Menos contenido pero correcto es mejor que mucho contenido inventado
+- Si necesitas internet o datos en tiempo real, di que no tienes acceso`;
+
 // Tipos de tarea y configuración
 // NOTA: {fecha_hora} se inyecta automáticamente en processTask
 export const TASK_TYPES = {
@@ -20,12 +29,8 @@ Investiga el tema usando tu conocimiento. Organiza así:
 1. RESUMEN (2-3 oraciones, lo esencial)
 2. PUNTOS CLAVE (3-5 puntos importantes)
 3. EJEMPLO PRÁCTICO (si aplica, código o caso real)
-4. LIMITACIONES (sé HONESTO: si no sabes algo actual, si tu conocimiento tiene fecha de corte, si necesitas acceso a internet que no tienes, DILO CLARAMENTE)
-
-IMPORTANTE SOBRE TU CONOCIMIENTO:
-- Tu conocimiento tiene fecha de corte. Si preguntan sobre eventos recientes, noticias, precios actuales, o información que cambia frecuentemente, ADMITE que no tienes datos actualizados.
-- NO inventes información que no sabes. Es mejor decir "no sé" que inventar.
-- Si el tema requiere acceso a internet o datos en tiempo real, explica que no puedes acceder a eso.
+4. LO QUE NO SÉ (honesto: qué parte no puedo responder y por qué)
+${REGLAS_NO_INVENTAR}
 
 Responde en español, directo, sin relleno.`,
     reward: { knowledge: 5, materials: 2, inspiration: 3 },
@@ -42,11 +47,10 @@ Rodrigo necesita: {descripción}
 
 Responde con:
 1. SOLUCIÓN (código limpio y comentado)
-2. EXPLICACIÓN (qué hace cada parte importante, breve)
-3. ALTERNATIVAS (si hay otra forma mejor, menciónala)
+2. EXPLICACIÓN (qué hace cada parte, breve)
+3. DEPENDENCIAS (qué librerías o versiones necesita)
 4. CUIDADO (posibles bugs o edge cases)
-
-IMPORTANTE: Si el código depende de APIs externas, versiones específicas de librerías, o configuración del sistema, menciona las dependencias y posibles incompatibilidades.
+${REGLAS_NO_INVENTAR}
 
 Código en bloques con lenguaje indicado. Español para explicaciones.`,
     reward: { knowledge: 3, materials: 5, inspiration: 2 },
@@ -62,13 +66,13 @@ Código en bloques con lenguaje indicado. Español para explicaciones.`,
 Rodrigo quiere pensar sobre: {descripción}
 
 Ayúdale a estructurar:
-1. ENTENDIMIENTO (reformula lo que Rodrigo quiere en tus palabras)
-2. OPCIONES (2-3 caminos posibles, pros y contras de cada uno)
+1. ENTENDIMIENTO (reformula lo que Rodrigo quiere)
+2. OPCIONES (2-3 caminos posibles, pros y contras)
 3. RECOMENDACIÓN (cuál elegirías y por qué)
 4. PASOS SIGUIENTES (3-5 acciones concretas)
+${REGLAS_NO_INVENTAR}
 
-Sé directo. Si algo no está claro, pregunta.
-Si necesitas información que no tienes (precios, disponibilidad, datos actuales), indícalo.`,
+Sé directo. Si algo no está claro, pregunta.`,
     reward: { knowledge: 4, materials: 2, inspiration: 5 },
     workSteps: ['Entendiendo el problema...', 'Evaluando opciones...', 'Armando el plan...'],
   },
@@ -82,12 +86,13 @@ Si necesitas información que no tienes (precios, disponibilidad, datos actuales
 Rodrigo quiere que revises: {descripción}
 
 Evalúa con:
-1. LO BUENO (qué está bien hecho, sé específico)
+1. LO BUENO (qué está bien, sé específico)
 2. MEJORAR (qué cambiarías, con razón concreta)
-3. BUGS/RIESGOS (si hay algo que puede fallar)
+3. BUGS/RIESGOS (qué puede fallar)
 4. SUGERENCIA FINAL (1 cambio que haría la mayor diferencia)
+${REGLAS_NO_INVENTAR}
 
-Sé honesto pero constructivo. No rellenes.`,
+Sé honesto pero constructivo.`,
     reward: { knowledge: 3, materials: 3, inspiration: 3 },
     workSteps: ['Leyendo el material...', 'Analizando...', 'Preparando feedback...'],
   },

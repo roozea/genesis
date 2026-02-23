@@ -137,8 +137,16 @@ async function doMicroReflection(worldState) {
 
     const prompt = `Eres Arq. Estás en ${locationName}. Visitaste: ${recentPlaces}.
 Mood: ${worldState.mood}. Hora: ${hora}.
-NO repitas estas observaciones: ${lastObs}
-JSON:{"observation":"máximo 10 palabras con 1 emoji","mood":"nuevo mood"}`;
+
+REGLAS para observation:
+- Max 10 palabras + 1 emoji
+- NO sentidos falsos (NO oler, NO escuchar, NO tocar, NO sentir viento)
+- SÍ puedes: ver el mapa/tiles, recordar, pensar, opinar
+BUENOS: "El lago se ve azul hoy 🌊" "Este cruce conecta todo el mapa 📍"
+MALOS: "Huele a flores 🌸" "Escucho pájaros 🐦" "Siento la brisa 💨"
+
+NO repitas: ${lastObs}
+JSON:{"observation":"texto","mood":"nuevo mood"}`;
 
     console.log('[REFLECTION] Generando micro-reflexión...');
     const result = await think(prompt, 'Observa tu entorno.', 'fast');
