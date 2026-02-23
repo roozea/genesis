@@ -1,6 +1,26 @@
 // GENESIS — Sistema híbrido de LLM con auto-detección
 // Fallback chain: Local (Ollama) → Haiku → Sonnet → Random
 
+// Instrucción de idioma para Qwen (tiende a responder en chino)
+const SPANISH_INSTRUCTION = 'IMPORTANTE: Responde SIEMPRE en español. NUNCA en chino, inglés u otro idioma.\n\n';
+
+/**
+ * Detecta si el texto contiene caracteres chinos
+ */
+function containsChinese(text) {
+  if (!text) return false;
+  return /[\u4e00-\u9fff]/.test(text);
+}
+
+/**
+ * Fallbacks genéricos en español para cuando Ollama responde en chino
+ */
+const SPANISH_FALLBACKS = {
+  fast: 'Explorando el lugar... 🔍',
+  chat: 'Hmm, déjame pensar en eso... 🤔',
+  task: 'Procesando la información...',
+};
+
 // Estado global del sistema de IA
 let llmState = {
   ollamaAvailable: false,
@@ -133,12 +153,18 @@ async function getOllamaModel() {
  * @param {string} userMessage - Mensaje del usuario
  * @param {string} tier - 'fast' para movimiento, 'chat' para conversación, 'task' para trabajo
  * @param {number} maxTokens - Límite de tokens
+ * @param {boolean} forceSpanish - Si es true, refuerza más la instrucción de español (retry)
  */
-async function callOllama(systemPrompt, userMessage, tier = 'fast', maxTokens = 100) {
+async function callOllama(systemPrompt, userMessage, tier = 'fast', maxTokens = 100, forceSpanish = false) {
+  // Agregar instrucción de español al inicio (Qwen es bilingüe y a veces responde en chino)
+  const spanishPrefix = forceSpanish
+    ? 'EN ESPAÑOL SOLAMENTE (NO CHINO): '
+    : SPANISH_INSTRUCTION;
+
   // Formato de prompt limpio para Ollama
   const prompt = (tier === 'chat' || tier === 'task')
-    ? `${systemPrompt}\n\nRodrigo dice: "${userMessage}"\n\nArq responde:`
-    : `${systemPrompt}\n\n${userMessage}`;
+    ? `${spanishPrefix}${systemPrompt}\n\nRodrigo dice: "${userMessage}"\n\nArq responde (en español):`
+    : `${spanishPrefix}${systemPrompt}\n\n${userMessage}`;
 
   const response = await fetch(`${OLLAMA_PROXY_URL}/api/generate`, {
     method: 'POST',
@@ -243,6 +269,25 @@ export async function think(systemPrompt, userMessage, tier = 'fast') {
           console.log(`[LLM] local: intentando con ${llmState.ollamaModel}...`);
           response = await callOllama(systemPrompt, userMessage, tier, ollamaTokens);
           console.log('[LLM] local: respuesta:', response?.slice(0, 80) || '(vacía)');
+
+          // Validar si respondió en chino (Qwen es bilingüe)
+          if (response && containsChinese(response)) {
+            console.warn('[LLM] ⚠️ Respuesta en chino detectada, reintentando con español forzado...');
+            try {
+              response = await callOllama(systemPrompt, userMessage, tier, ollamaTokens, true);
+              console.log('[LLM] local retry:', response?.slice(0, 80) || '(vacía)');
+
+              // Si sigue en chino, usar fallback español
+              if (containsChinese(response)) {
+                console.warn('[LLM] ⚠️ Sigue en chino, usando fallback español');
+                response = SPANISH_FALLBACKS[tier] || SPANISH_FALLBACKS.fast;
+              }
+            } catch (retryError) {
+              console.error('[LLM] Retry falló:', retryError.message);
+              response = SPANISH_FALLBACKS[tier] || SPANISH_FALLBACKS.fast;
+            }
+          }
+
           if (response && response.trim()) {
             return { response, source: 'local' };
           }

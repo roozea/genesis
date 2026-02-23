@@ -135,18 +135,20 @@ async function doMicroReflection(worldState) {
     const hora = new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
     const lastObs = managerState.lastObservations.slice(-3).join('; ') || 'ninguna';
 
-    const prompt = `Eres Arq. Estás en ${locationName}. Visitaste: ${recentPlaces}.
+    const prompt = `RESPONDE EN ESPAÑOL. NO CHINO. NO ENGLISH.
+Eres Arq. Estás en ${locationName}. Visitaste: ${recentPlaces}.
 Mood: ${worldState.mood}. Hora: ${hora}.
 
 REGLAS para observation:
 - Max 10 palabras + 1 emoji
+- SIEMPRE en español
 - NO sentidos falsos (NO oler, NO escuchar, NO tocar, NO sentir viento)
 - SÍ puedes: ver el mapa/tiles, recordar, pensar, opinar
 BUENOS: "El lago se ve azul hoy 🌊" "Este cruce conecta todo el mapa 📍"
-MALOS: "Huele a flores 🌸" "Escucho pájaros 🐦" "Siento la brisa 💨"
+MALOS: "Huele a flores 🌸" "Escucho pájaros 🐦" "湖很平静" (NO CHINO)
 
 NO repitas: ${lastObs}
-JSON:{"observation":"texto","mood":"nuevo mood"}`;
+JSON:{"observation":"texto en español","mood":"nuevo mood"}`;
 
     console.log('[REFLECTION] Generando micro-reflexión...');
     const result = await think(prompt, 'Observa tu entorno.', 'fast');
@@ -210,14 +212,16 @@ async function doMediumReflection(worldState) {
       })
       .join('\n');
 
-    const prompt = `Eres Arq. Revisa tus experiencias recientes:
+    const prompt = `RESPONDE EN ESPAÑOL. NO CHINO.
+Eres Arq. Revisa tus experiencias recientes:
 ${recentMemories}
 
-Genera UN insight — algo que APRENDISTE o CONECTASTE.
+Genera UN insight EN ESPAÑOL — algo que APRENDISTE o CONECTASTE.
 Bueno: 'Cada vez que vuelvo al jardín me siento más tranquilo'
 Bueno: 'Rodrigo me pide ir a lugares que no conozco bien, quiere que explore'
 Malo: 'Fui al jardín y luego al lago' (resumen, no insight)
-JSON:{"insight":"texto","importance":7}`;
+Malo: '我学到了...' (NO CHINO)
+JSON:{"insight":"texto en español","importance":7}`;
 
     console.log('[REFLECTION] Generando reflexión media...');
     const result = await think(prompt, 'Reflexiona sobre lo que aprendiste.', 'fast');
@@ -281,7 +285,8 @@ async function doDeepReflection(worldState) {
       .map(l => l.name)
       .join(', ');
 
-    const prompt = `Eres Arq, El Arquitecto de Genesis. Momento de pensar en profundidad.
+    const prompt = `RESPONDE EN ESPAÑOL. NO CHINO. NO ENGLISH.
+Eres Arq, El Arquitecto de Genesis. Momento de pensar en profundidad.
 
 Reflexiones recientes:
 ${reflections}
@@ -291,11 +296,11 @@ ${conversations}
 
 Lugares favoritos: ${locationVisits}
 
-Genera:
+Genera EN ESPAÑOL:
 1. Reflexión profunda sobre ti, el mundo, o Rodrigo
 2. Intención: qué quieres hacer y por qué
 JSON:{
-  "reflection":"texto profundo",
+  "reflection":"texto en español",
   "intention":{"action":"qué hacer","destination":"clave lugar o null","reason":"por qué"},
   "mood":"nuevo mood"
 }`;

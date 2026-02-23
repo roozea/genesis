@@ -16,8 +16,9 @@ export function getMovementPrompt(currentLocation, lastLocations, mood, lastChat
 
   const recentPlaces = lastLocations.slice(-2).join(', ') || 'ninguno';
 
-  // Prompt compacto con memorias
-  let prompt = `Eres Arq. En:${currentLocation}. Mood:${mood}.`;
+  // Prompt compacto con memorias (ESPAÑOL FORZADO para Qwen)
+  let prompt = `RESPONDE EN ESPAÑOL. NO CHINO.
+Eres Arq. En:${currentLocation}. Mood:${mood}.`;
 
   // Agregar memorias si hay
   if (memoriesText && memoriesText !== 'Sin memorias relevantes.') {
