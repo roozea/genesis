@@ -260,26 +260,39 @@ Responde SOLO el nombre, nada más.`;
     console.log('[BRAIN] response:', result.response);
 
     if (result.source === 'fallback' || !result.response) {
-      console.log('[BRAIN] ❌ Fallback o vacío, usando random');
+      console.log('[FALLBACK] ⚠️ LLM no disponible o respuesta vacía');
       return randomDecision(currentLocation, lastLocations);
     }
 
     // Parsear: buscar cualquier key válido en la respuesta
     const responseClean = result.response.trim().toLowerCase();
-    console.log('[BRAIN] responseClean:', responseClean);
+    let destination = availableKeys.find(k => responseClean.includes(k));
 
-    const destination = availableKeys.find(k => responseClean.includes(k));
-    console.log('[BRAIN] destination encontrado:', destination);
-
+    // Si no encontró key válido, REINTENTAR con prompt más directo
     if (!destination) {
-      console.log('[BRAIN] ❌ No encontré key válido, usando random');
-      return randomDecision(currentLocation, lastLocations);
+      console.log('[BRAIN] ⚠️ Respuesta inválida:', result.response);
+      console.log('[BRAIN] Reintentando con prompt directo...');
+
+      const retryPrompt = `Responde UNA palabra: ${availableKeys.join(', ')}`;
+      const retry = await think(retryPrompt, 'lugar', 'fast');
+
+      console.log('[BRAIN] Retry response:', retry.response);
+
+      if (retry.response && retry.source !== 'fallback') {
+        const retryClean = retry.response.trim().toLowerCase();
+        destination = availableKeys.find(k => retryClean.includes(k));
+      }
+
+      if (!destination) {
+        console.log(`[FALLBACK] ⚠️ Ollama respondió: "${result.response}" → "${retry.response || '(vacío)'}" (no válido)`);
+        return randomDecision(currentLocation, lastLocations);
+      }
     }
 
     const destName = LOCATIONS[destination]?.name || destination;
     console.log('[BRAIN] ✓ Destino:', destination, '-', destName);
 
-    // Pensamiento simple sin llamar a IA otra vez
+    // Pensamiento simple (después de elegir destino)
     const thoughts = [
       `Vamos a ${destName}... 🚶`,
       `${destName}, interesante 🤔`,
