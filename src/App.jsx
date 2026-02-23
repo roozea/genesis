@@ -136,6 +136,9 @@ export default function App() {
   const [workProgress, setWorkProgress] = useState(null); // null = no working, 0-100 = progress
   const [floatingRewards, setFloatingRewards] = useState(null); // { knowledge, materials, inspiration }
 
+  // Versión de cambios del mundo (para forzar re-render del mapa)
+  const [worldChangesVersion, setWorldChangesVersion] = useState(0);
+
   // Cola de destino forzado (para cuando está trabajando)
   const queuedDestinationRef = useRef(null);
 
@@ -229,6 +232,86 @@ export default function App() {
     });
     return unsubscribe;
   }, []);
+
+  // Sistema de construcción - avanzar turnos cada 30 segundos
+  useEffect(() => {
+    const activeProject = getActiveProject();
+    if (!activeProject) return;
+
+    // Solo construir si Arq está en la ubicación correcta y no está caminando
+    const isAtProjectLocation = currentLocation === activeProject.location;
+    const isIdle = agent.state === 'idle' || agent.state === 'building';
+
+    if (!isAtProjectLocation || !isIdle) {
+      // Si no está en la ubicación, quitar estado building
+      if (agent.state === 'building') {
+        setAgent(prev => ({ ...prev, state: 'idle' }));
+      }
+      return;
+    }
+
+    // Cambiar a estado building
+    if (agent.state !== 'building') {
+      setAgent(prev => ({ ...prev, state: 'building' }));
+      setThought(`Construyendo ${activeProject.name}... 🔨`);
+      setThoughtType('work');
+      addLog('project', `Trabajando en ${activeProject.name}`, '🏗️');
+    }
+
+    // Turno cada 30 segundos
+    const TURN_DURATION = 30000;
+
+    const turnInterval = setInterval(() => {
+      const project = getActiveProject();
+      if (!project) {
+        clearInterval(turnInterval);
+        return;
+      }
+
+      // Avanzar turno
+      const updated = workOnProject();
+
+      if (updated) {
+        const progress = Math.round((updated.turnsCompleted / updated.workTurns) * 100);
+        setWorkProgress(progress);
+        addLog('project', `Turno ${updated.turnsCompleted}/${updated.workTurns}`, '⚙️');
+
+        if (updated.justCompleted) {
+          // ¡Proyecto completado!
+          setAgent(prev => ({ ...prev, state: 'celebrating' }));
+          setThought(`¡${updated.name} terminado! 🎉`);
+          setThoughtType('success');
+          setWorkProgress(null);
+
+          // Forzar re-render del mapa con el nuevo tile
+          setWorldChangesVersion(v => v + 1);
+
+          // Mensaje en chat
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `¡Terminé de construir ${updated.icon} ${updated.name}! 🎉\n\n${updated.reward.bonus ? `Bonus: ${updated.reward.bonus}` : 'El mapa ha cambiado.'}`,
+            timestamp: Date.now(),
+          }]);
+
+          addLog('project', `¡Completado: ${updated.name}!`, '🎉');
+
+          // Volver a idle después de celebrar
+          setTimeout(() => {
+            setAgent(prev => ({ ...prev, state: 'idle' }));
+            setThought(null);
+            setThoughtType(null);
+          }, 3000);
+
+          clearInterval(turnInterval);
+        } else {
+          // Actualizar pensamiento
+          setThought(`${updated.name}: ${updated.turnsCompleted}/${updated.workTurns} 🔨`);
+        }
+      }
+    }, TURN_DURATION);
+
+    return () => clearInterval(turnInterval);
+  }, [currentLocation, agent.state, addLog]);
 
   // Caminar paso a paso por el path
   // Retorna true si completó, false si fue cancelado
@@ -1016,6 +1099,7 @@ export default function App() {
               timeFilter={genesisTime.filter}
               workProgress={workProgress}
               floatingRewards={floatingRewards}
+              worldChangesVersion={worldChangesVersion}
             />
           </div>
 

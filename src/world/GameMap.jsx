@@ -8,11 +8,12 @@ import { getWorldChanges } from '../agents/projects';
 
 const TILE_SIZE = 24;
 
-export default function GameMap({ agent, thought, thoughtType, timeFilter, workProgress, floatingRewards }) {
+export default function GameMap({ agent, thought, thoughtType, timeFilter, workProgress, floatingRewards, worldChangesVersion = 0 }) {
   // Filtro de tiempo (día/noche)
   const filter = timeFilter || { filter: 'none', backgroundColor: 'transparent', overlay: 'none' };
 
   // Aplicar cambios del mundo (tiles de proyectos completados)
+  // Se recalcula cuando worldChangesVersion cambia (al completar un proyecto)
   const mapWithChanges = useMemo(() => {
     const worldChanges = getWorldChanges();
     if (worldChanges.length === 0) return MAP;
@@ -29,7 +30,7 @@ export default function GameMap({ agent, thought, thoughtType, timeFilter, workP
     });
 
     return newMap;
-  }, []); // Se recalcula solo en mount (los cambios persisten en localStorage)
+  }, [worldChangesVersion]); // Se recalcula cuando se completa un proyecto
 
   return (
     <div
