@@ -227,90 +227,68 @@ export async function decideNextMove(currentLocation, lastLocations, mood, lastC
     }
   }
 
-  // PRIORIDAD 3: Decisión normal con IA (PROMPT SIMPLE)
+  // PRIORIDAD 3: Decisión con IA - PROMPT ULTRA SIMPLE
   const validKeys = getLocationKeys();
+  const last2 = lastLocations.slice(-2);
 
-  // Construir lista de ubicaciones disponibles (excluyendo actual y últimas 2)
-  const availableLocations = validKeys
-    .filter(key => key !== currentLocation && !lastLocations.slice(-2).includes(key))
-    .map(key => ({
-      key,
-      name: LOCATIONS[key]?.name || key,
-    }));
+  // Filtrar: no ir donde estás ni donde fuiste
+  const availableKeys = validKeys.filter(k => k !== currentLocation && !last2.includes(k));
 
-  if (availableLocations.length === 0) {
-    console.log('[BRAIN] No hay ubicaciones disponibles, usando random');
+  console.log('[BRAIN] ═══════════════════════════════════');
+  console.log('[BRAIN] currentLocation:', currentLocation);
+  console.log('[BRAIN] lastLocations:', lastLocations);
+  console.log('[BRAIN] availableKeys:', availableKeys);
+
+  if (availableKeys.length === 0) {
+    console.log('[BRAIN] ❌ No hay keys disponibles, random');
     return randomDecision(currentLocation, lastLocations);
   }
 
-  // PROMPT 1: Elegir destino (MUY SIMPLE, solo pide el key)
-  const destPrompt = `Elige UN destino de esta lista:
-${availableLocations.map(l => `- ${l.key}: ${l.name}`).join('\n')}
+  // PROMPT ULTRA SIMPLE - solo lista de keys
+  const prompt = `Elige un destino de: ${availableKeys.join(', ')}
+Estás en: ${currentLocation}. No repitas: ${last2.join(', ') || 'nada'}
+Responde SOLO el nombre, nada más.`;
 
-Estás en: ${currentLocation}
-No vayas a: ${lastLocations.slice(-2).join(', ') || 'ninguno'}
-
-Responde SOLO el key del destino, nada más. Ejemplo: garden`;
-
-  console.log('[BRAIN] Prompt destino:', destPrompt);
+  console.log('[BRAIN] Prompt:', prompt);
+  console.log('[BRAIN] Llamando think()...');
 
   try {
-    const destResult = await think(destPrompt, 'Elige destino.', 'fast');
-    console.log('[BRAIN] Respuesta destino:', destResult.source, '|', destResult.response);
+    const result = await think(prompt, 'destino', 'fast');
 
-    if (destResult.source === 'fallback' || !destResult.response) {
-      console.log('[BRAIN] ❌ Think falló, usando random');
+    console.log('[BRAIN] ═══ RESPUESTA ═══');
+    console.log('[BRAIN] source:', result.source);
+    console.log('[BRAIN] response:', result.response);
+
+    if (result.source === 'fallback' || !result.response) {
+      console.log('[BRAIN] ❌ Fallback o vacío, usando random');
       return randomDecision(currentLocation, lastLocations);
     }
 
-    // Parsear respuesta: buscar key válido en el texto
-    const responseText = destResult.response.trim().toLowerCase();
-    const availableKeys = availableLocations.map(l => l.key);
+    // Parsear: buscar cualquier key válido en la respuesta
+    const responseClean = result.response.trim().toLowerCase();
+    console.log('[BRAIN] responseClean:', responseClean);
 
-    // Buscar el primer key válido que aparezca en la respuesta
-    let destination = null;
-    for (const key of availableKeys) {
-      if (responseText.includes(key)) {
-        destination = key;
-        break;
-      }
-    }
+    const destination = availableKeys.find(k => responseClean.includes(k));
+    console.log('[BRAIN] destination encontrado:', destination);
 
     if (!destination) {
-      console.log('[BRAIN] ❌ No se encontró key válido en respuesta, usando random');
+      console.log('[BRAIN] ❌ No encontré key válido, usando random');
       return randomDecision(currentLocation, lastLocations);
     }
 
     const destName = LOCATIONS[destination]?.name || destination;
-    console.log('[BRAIN] ✓ Destino elegido:', destination, '(', destName, ')');
+    console.log('[BRAIN] ✓ Destino:', destination, '-', destName);
 
-    // PROMPT 2: Generar pensamiento (SEPARADO)
-    const thoughtPrompt = `Eres Arq caminando a ${destName}.
-Genera UN pensamiento corto (max 8 palabras) con 1 emoji.
-Solo el pensamiento, nada más.`;
+    // Pensamiento simple sin llamar a IA otra vez
+    const thoughts = [
+      `Vamos a ${destName}... 🚶`,
+      `${destName}, interesante 🤔`,
+      `A ver qué hay en ${destName} 👀`,
+      `Rumbo a ${destName} ✨`,
+    ];
+    const thought = thoughts[Math.floor(Math.random() * thoughts.length)];
 
-    let thought = `Vamos a ${destName}... 🚶`;
-
-    try {
-      const thoughtResult = await think(thoughtPrompt, 'Pensamiento.', 'fast');
-      if (thoughtResult.response && thoughtResult.source !== 'fallback') {
-        // Limpiar respuesta: quitar comillas, puntos extra, etc.
-        let cleanThought = thoughtResult.response
-          .replace(/^["']|["']$/g, '')
-          .replace(/^pensamiento:?\s*/i, '')
-          .trim();
-
-        // Validar longitud
-        if (cleanThought.length > 5 && cleanThought.length < 60) {
-          thought = cleanThought;
-        }
-        console.log('[BRAIN] ✓ Pensamiento generado:', thought);
-      }
-    } catch (thoughtError) {
-      console.log('[BRAIN] Pensamiento falló, usando default');
-    }
-
-    // Elegir mood basado en destino
+    // Mood basado en destino
     const moodMap = {
       garden: 'peaceful',
       lakeshore: 'calm',
@@ -322,15 +300,16 @@ Solo el pensamiento, nada más.`;
       locked: 'curious',
     };
 
+    console.log('[BRAIN] ═══ ÉXITO ═══');
     return {
       destination,
       thought,
       mood: moodMap[destination] || mood,
-      source: destResult.source,
+      source: result.source,
     };
 
   } catch (error) {
-    console.error('[BRAIN] ❌ Error en decisión IA:', error.message);
+    console.error('[BRAIN] ❌ Error:', error.message);
     return randomDecision(currentLocation, lastLocations);
   }
 }
