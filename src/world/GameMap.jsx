@@ -6,7 +6,7 @@ import { PALETTE } from '../config/palette';
 
 const TILE_SIZE = 24;
 
-export default function GameMap({ agent, thought }) {
+export default function GameMap({ agent, thought, thoughtType }) {
   return (
     <div
       style={{
@@ -40,6 +40,7 @@ export default function GameMap({ agent, thought }) {
           direction={agent.direction}
           state={agent.state}
           thought={thought}
+          thoughtType={thoughtType}
           tileSize={TILE_SIZE}
         />
       )}

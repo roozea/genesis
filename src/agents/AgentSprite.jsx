@@ -1,7 +1,7 @@
 // GENESIS — Sprite visual del agente Arq (CSS puro, NO emojis)
 import { PALETTE } from '../config/palette';
 
-export default function AgentSprite({ row, col, direction = 'right', state = 'idle', thought, tileSize = 24 }) {
+export default function AgentSprite({ row, col, direction = 'right', state = 'idle', thought, thoughtType, tileSize = 24 }) {
   // Posición del sprite (centrado en el tile)
   const left = col * tileSize + (tileSize - 16) / 2;
   const top = row * tileSize - 8; // Offset para que los pies estén en el tile
@@ -24,7 +24,7 @@ export default function AgentSprite({ row, col, direction = 'right', state = 'id
       }}
     >
       {/* Thought bubble */}
-      {thought && <ThoughtBubble text={thought} />}
+      {thought && <ThoughtBubble text={thought} type={thoughtType} />}
 
       {/* Casco amarillo */}
       <div
@@ -160,7 +160,20 @@ export default function AgentSprite({ row, col, direction = 'right', state = 'id
 }
 
 // Componente del thought bubble
-function ThoughtBubble({ text }) {
+// type: 'micro' | 'medium' | 'deep' | null (normal)
+function ThoughtBubble({ text, type }) {
+  // Estilos según tipo de reflexión
+  const isDeep = type === 'deep';
+  const isMedium = type === 'medium';
+  const isSpecial = isDeep || isMedium;
+
+  // Colores según tipo
+  const borderColor = isDeep ? '#a080ff' : isMedium ? '#ffd700' : PALETTE.panelBorder;
+  const glowAnimation = isDeep ? 'purpleGlow 2s ease-in-out infinite' :
+                        isMedium ? 'goldenGlow 2s ease-in-out infinite' : 'none';
+  const entryAnimation = isDeep ? 'deepBubbleIn 0.5s ease-out' :
+                         isSpecial ? 'bubbleIn 0.4s ease-out' : 'bubbleIn 0.3s ease-out';
+
   return (
     <div
       style={{
@@ -169,34 +182,41 @@ function ThoughtBubble({ text }) {
         left: '50%',
         transform: 'translateX(-50%)',
         backgroundColor: 'rgba(16, 16, 42, 0.95)',
-        border: `1px solid ${PALETTE.panelBorder}`,
+        border: `2px solid ${borderColor}`,
         borderRadius: 8,
-        padding: '6px 10px',
+        padding: isSpecial ? '8px 12px' : '6px 10px',
         fontFamily: '"Press Start 2P", monospace',
-        fontSize: 8,
-        color: PALETTE.text,
+        fontSize: isSpecial ? 9 : 8,
+        color: isDeep ? '#e0d0ff' : isMedium ? '#fff8e0' : PALETTE.text,
         whiteSpace: 'nowrap',
-        maxWidth: 180,
+        maxWidth: isSpecial ? 220 : 180,
         overflow: 'hidden',
         textOverflow: 'ellipsis',
-        animation: 'bubbleIn 0.3s ease-out',
+        animation: `${entryAnimation}, ${glowAnimation}`,
         zIndex: 1000,
-        boxShadow: `0 4px 12px rgba(0,0,0,0.4)`,
+        boxShadow: isDeep
+          ? '0 4px 20px rgba(160, 128, 255, 0.4)'
+          : isMedium
+          ? '0 4px 16px rgba(255, 215, 0, 0.3)'
+          : '0 4px 12px rgba(0,0,0,0.4)',
       }}
     >
+      {/* Emoji de tipo */}
+      {isDeep && <span style={{ marginRight: 6 }}>🌟</span>}
+      {isMedium && <span style={{ marginRight: 6 }}>💡</span>}
       {text}
       {/* Flecha triangular apuntando abajo */}
       <div
         style={{
           position: 'absolute',
-          bottom: -6,
+          bottom: -7,
           left: '50%',
           transform: 'translateX(-50%)',
           width: 0,
           height: 0,
-          borderLeft: '6px solid transparent',
-          borderRight: '6px solid transparent',
-          borderTop: `6px solid ${PALETTE.panelBorder}`,
+          borderLeft: '7px solid transparent',
+          borderRight: '7px solid transparent',
+          borderTop: `7px solid ${borderColor}`,
         }}
       />
       <div

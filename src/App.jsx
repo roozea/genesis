@@ -35,11 +35,18 @@ import {
   shouldCancelPath,
   clearCancelFlag,
 } from './agents/worldState';
+import {
+  tick as reflectionTick,
+  onNewMemory,
+  onChatMessage,
+  setThoughtBubbleCallback,
+} from './agents/reflectionManager';
 import { LOCATIONS } from './world/locations';
 import GameMap from './world/GameMap';
 import Header from './ui/Header';
 import ActivityLog from './ui/ActivityLog';
 import ChatPanel from './ui/ChatPanel';
+import BrainPanel from './ui/BrainPanel';
 import './styles/animations.css';
 
 // Posición inicial de Arq (en su taller)
@@ -72,6 +79,12 @@ export default function App() {
   // Contador de memorias
   const [memoryCount, setMemoryCount] = useState(getMemoryCount());
 
+  // Panel de cerebro
+  const [isBrainPanelOpen, setIsBrainPanelOpen] = useState(false);
+
+  // Tipo de thought (micro, medium, deep)
+  const [thoughtType, setThoughtType] = useState(null);
+
   // Refs para intervalos
   const moveIntervalRef = useRef(null);
   const isWalkingRef = useRef(false);
@@ -100,6 +113,9 @@ export default function App() {
       // Actualizar contador
       setMemoryCount(getMemoryCount());
 
+      // Notificar al reflectionManager para acumular importancia
+      onNewMemory(memory);
+
       // Agregar al Activity Log (solo si no es core memory)
       if (memory.type !== 'core') {
         const truncatedContent = memory.content.length > 35
@@ -109,6 +125,37 @@ export default function App() {
       }
     });
     return unsubscribe;
+  }, [addLog]);
+
+  // Sistema de reflexiones - tick cada segundo
+  useEffect(() => {
+    // Callback para thought bubbles de reflexiones
+    setThoughtBubbleCallback((text, type) => {
+      setThought(text);
+      setThoughtType(type);
+
+      // Log según tipo
+      const emoji = type === 'deep' ? '🌟' : type === 'medium' ? '💡' : '💭';
+      const label = type === 'deep' ? 'deep' : type === 'medium' ? 'medium' : 'micro';
+      addLog(label, text.slice(0, 35) + '...', emoji);
+
+      // Duración según tipo (más tiempo para reflexiones profundas)
+      const duration = type === 'deep' ? 6000 : type === 'medium' ? 5000 : 4000;
+      setTimeout(() => {
+        setThought(null);
+        setThoughtType(null);
+      }, duration);
+    });
+
+    // Tick del sistema de reflexiones cada segundo
+    const reflectionInterval = setInterval(() => {
+      reflectionTick();
+    }, 1000);
+
+    return () => {
+      clearInterval(reflectionInterval);
+      setThoughtBubbleCallback(null);
+    };
   }, [addLog]);
 
   // Caminar paso a paso por el path
@@ -326,6 +373,9 @@ export default function App() {
       // Registrar en worldState
       recordChatExchange(text, result.response, 'conversación');
 
+      // Notificar al reflectionManager (para trigger de reflexión profunda)
+      onChatMessage();
+
       // DETECTAR INTENCIÓN y afectar al mundo
       const intent = parseIntent(text);
       console.log('[APP] Intent detectado:', intent);
@@ -396,6 +446,7 @@ export default function App() {
         iaCalls={stats.iaCalls}
         elapsedTime={elapsedTime}
         memoryCount={memoryCount}
+        onBrainClick={() => setIsBrainPanelOpen(true)}
       />
 
       {/* Contenido principal */}
@@ -421,7 +472,7 @@ export default function App() {
               border: `1px solid ${PALETTE.panelBorder}`,
             }}
           >
-            <GameMap agent={agent} thought={thought} />
+            <GameMap agent={agent} thought={thought} thoughtType={thoughtType} />
           </div>
 
           {/* Log de actividad */}
@@ -436,6 +487,12 @@ export default function App() {
           agentStatus={agentStatus}
         />
       </main>
+
+      {/* Panel de Cerebro (overlay) */}
+      <BrainPanel
+        isOpen={isBrainPanelOpen}
+        onClose={() => setIsBrainPanelOpen(false)}
+      />
     </div>
   );
 }

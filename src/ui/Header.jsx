@@ -5,7 +5,7 @@ import { MOOD_EMOJI } from '../agents/prompts';
 import { LOCATIONS } from '../world/locations';
 import { onStateChange } from '../config/llm';
 
-export default function Header({ level, xp, mood, location, iaCalls, elapsedTime, memoryCount = 0 }) {
+export default function Header({ level, xp, mood, location, iaCalls, elapsedTime, memoryCount = 0, onBrainClick }) {
   const [llmState, setLlmState] = useState({ currentSource: 'checking' });
 
   // Suscribirse a cambios del estado LLM
@@ -74,11 +74,36 @@ export default function Header({ level, xp, mood, location, iaCalls, elapsedTime
           <span style={{ color: source.color, fontSize: 8 }}>{source.label}</span>
         </div>
 
-        {/* Contador de memorias */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {/* Contador de memorias + Botón Cerebro */}
+        <button
+          onClick={onBrainClick}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '4px 10px',
+            backgroundColor: PALETTE.bg,
+            border: `1px solid ${PALETTE.accent}`,
+            borderRadius: 4,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            fontSize: 'inherit',
+            color: PALETTE.text,
+            transition: 'all 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = PALETTE.accent;
+            e.currentTarget.style.color = PALETTE.bg;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = PALETTE.bg;
+            e.currentTarget.style.color = PALETTE.text;
+          }}
+          title="Ver cerebro de Arq"
+        >
           <span>🧠</span>
-          <span style={{ color: PALETTE.accent }}>{memoryCount}</span>
-        </div>
+          <span style={{ color: 'inherit' }}>{memoryCount}</span>
+        </button>
 
         {/* Nivel con barra de XP */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

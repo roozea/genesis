@@ -29,6 +29,7 @@ const initialState = {
 
   // Control de movimiento (chat -> mundo)
   forcedDestination: null,       // destino forzado por chat
+  suggestedDestination: null,    // destino sugerido por reflexión profunda
   exploreMode: false,            // priorizar lugares no visitados
   cancelCurrentPath: false,      // interrumpir caminata actual
   pauseDecisionsUntil: null,     // pausar decisiones hasta timestamp
