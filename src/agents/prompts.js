@@ -32,11 +32,34 @@ No repitas: ${recentPlaces}.`;
 }
 
 /**
+ * Genera contexto de fecha/hora REAL para inyectar en prompts
+ */
+function getDateContext() {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('es-MX', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+  const timeStr = now.toLocaleTimeString('es-MX', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  return `DATO REAL: Hoy es ${dateStr}, son las ${timeStr}.
+Esto es un HECHO, no lo adivines ni lo inventes. Si te preguntan la fecha u hora, usa EXACTAMENTE estos datos.`;
+}
+
+/**
  * Construye el system prompt para chat con CONTEXTO VIVO del worldState
  * @param {object} worldState - Estado actual del mundo
  * @param {array} memories - Memorias relevantes formateadas
  */
 export function buildChatPrompt(worldState, memories = []) {
+  // Fecha y hora REAL como primera línea
+  const dateContext = getDateContext();
+
   // Qué está haciendo AHORA
   let situacion = '';
   if (worldState.isWalking && worldState.walkingTo) {
@@ -72,7 +95,12 @@ export function buildChatPrompt(worldState, memories = []) {
     ? `📚${worldState.resources.knowledge || 0} 🪨${worldState.resources.materials || 0} ✨${worldState.resources.inspiration || 0}`
     : '📚0 🪨0 ✨0';
 
-  return `Eres Arq, El Arquitecto de Genesis.
+  // Log para verificar que la fecha se inyecta
+  console.log('[CHAT] System prompt fecha:', dateContext);
+
+  return `${dateContext}
+
+Eres Arq, El Arquitecto de Genesis.
 PERSONALIDAD: Curioso, metódico, humor seco. Español casual. 1 emoji max.
 
 ═══ RELACIÓN CON RODRIGO ═══
