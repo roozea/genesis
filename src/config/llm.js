@@ -26,12 +26,127 @@ let llmState = {
   ollamaAvailable: false,
   ollamaModel: null,
   apiKeyAvailable: false,
+  apiKeySource: null, // 'localStorage' | 'env' | null
+  apiOnline: false,
   initialized: false,
   currentSource: 'checking', // 'local' | 'api' | 'fallback' | 'checking'
 };
 
+// Key para localStorage
+const API_KEY_STORAGE = 'genesis_anthropic_api_key';
+
 // Listeners para cambios de estado
 const stateListeners = new Set();
+
+/**
+ * Obtiene la API key (primero localStorage, luego .env)
+ */
+export function getApiKey() {
+  // Primero intentar localStorage
+  const storedKey = localStorage.getItem(API_KEY_STORAGE);
+  if (storedKey && storedKey.length > 10) {
+    return { key: storedKey, source: 'localStorage' };
+  }
+
+  // Luego intentar .env
+  const envKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  if (envKey && envKey.length > 10 && envKey !== 'tu-api-key-aqui') {
+    return { key: envKey, source: 'env' };
+  }
+
+  return { key: null, source: null };
+}
+
+/**
+ * Guarda la API key en localStorage
+ */
+export function saveApiKey(apiKey) {
+  if (apiKey && apiKey.trim()) {
+    localStorage.setItem(API_KEY_STORAGE, apiKey.trim());
+    // Actualizar estado
+    llmState.apiKeyAvailable = true;
+    llmState.apiKeySource = 'localStorage';
+    notifyListeners();
+    console.log('[LLM] API key guardada en localStorage');
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Elimina la API key de localStorage
+ */
+export function clearApiKey() {
+  localStorage.removeItem(API_KEY_STORAGE);
+  // Re-verificar si hay key en .env
+  const envKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  llmState.apiKeyAvailable = !!(envKey && envKey.length > 10 && envKey !== 'tu-api-key-aqui');
+  llmState.apiKeySource = llmState.apiKeyAvailable ? 'env' : null;
+  llmState.apiOnline = false;
+  notifyListeners();
+  console.log('[LLM] API key eliminada de localStorage');
+}
+
+/**
+ * Prueba la conexión a la API de Anthropic
+ * @returns {Promise<{success: boolean, message: string, model?: string}>}
+ */
+export async function testApiConnection() {
+  const { key } = getApiKey();
+
+  if (!key) {
+    return { success: false, message: 'No hay API key configurada' };
+  }
+
+  try {
+    console.log('[LLM] Probando conexión API...');
+
+    const response = await fetch('/anthropic/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-5-haiku-20241022',
+        max_tokens: 10,
+        messages: [{ role: 'user', content: 'Di solo "ok"' }],
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      llmState.apiOnline = true;
+      notifyListeners();
+      console.log('[LLM] ✅ Conexión API exitosa');
+      return {
+        success: true,
+        message: 'Conexión exitosa',
+        model: 'claude-3-5-haiku-20241022',
+        response: data.content?.[0]?.text || 'ok',
+      };
+    } else {
+      const error = await response.json().catch(() => ({}));
+      llmState.apiOnline = false;
+      notifyListeners();
+      console.error('[LLM] ❌ Error API:', error);
+      return {
+        success: false,
+        message: error.error?.message || `Error ${response.status}`,
+      };
+    }
+  } catch (error) {
+    llmState.apiOnline = false;
+    notifyListeners();
+    console.error('[LLM] ❌ Error de conexión:', error);
+    return {
+      success: false,
+      message: error.message || 'Error de conexión',
+    };
+  }
+}
 
 // URL del proxy de Vite para Ollama (evita CORS)
 const OLLAMA_PROXY_URL = '/ollama';
@@ -79,11 +194,15 @@ export async function initLlm() {
     console.log('[llm] ✗ Ollama no disponible');
   }
 
-  // 2. Detectar API Key
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-  llmState.apiKeyAvailable = !!(apiKey && apiKey.length > 10 && apiKey !== 'tu-api-key-aqui');
+  // 2. Detectar API Key (localStorage primero, luego .env)
+  const { key: apiKey, source: apiSource } = getApiKey();
+  console.log('[llm] API Key:',
+    apiKey ? `"${apiKey.slice(0, 12)}..." (${apiKey.length} chars) desde ${apiSource}` : 'no configurada'
+  );
+  llmState.apiKeyAvailable = !!apiKey;
+  llmState.apiKeySource = apiSource;
   if (llmState.apiKeyAvailable) {
-    console.log('[llm] ✓ API Key configurada');
+    console.log(`[llm] ✓ API Key configurada (${apiSource})`);
   } else {
     console.log('[llm] ✗ API Key no configurada');
   }
@@ -189,30 +308,41 @@ async function callOllama(systemPrompt, userMessage, tier = 'fast', maxTokens = 
   return data.response || '';
 }
 
+// URL del proxy de Vite para Anthropic (evita CORS)
+const ANTHROPIC_PROXY_URL = '/anthropic';
+
 /**
- * Llama a la API de Anthropic
+ * Llama a la API de Anthropic via proxy
  * @param {number} maxTokens - Límite de tokens (default según modelo)
  */
 async function callAnthropic(systemPrompt, userMessage, model = 'haiku', maxTokens = null) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-  if (!apiKey || apiKey === 'tu-api-key-aqui') {
+  const { key: apiKey, source } = getApiKey();
+
+  // Debug: verificar que la key se lee
+  console.log('[LLM] API key detectada:',
+    apiKey ? `SÍ (${apiKey.slice(0, 15)}...) desde ${source}` : 'NO — no se encontró'
+  );
+
+  if (!apiKey) {
     throw new Error('API Key no configurada');
   }
 
+  // Modelos actualizados
   const modelId = model === 'haiku'
-    ? 'claude-3-haiku-20240307'
-    : 'claude-3-5-sonnet-20241022';
+    ? 'claude-3-5-haiku-20241022'
+    : 'claude-sonnet-4-20250514';
 
-  // Tokens por defecto según modelo, o usar el valor explícito
-  const tokens = maxTokens || (model === 'haiku' ? 200 : 600);
+  // Tokens por defecto según modelo
+  const tokens = maxTokens || (model === 'haiku' ? 300 : 800);
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  console.log('[LLM] Llamando API Claude:', { model: modelId, tokens });
+
+  const response = await fetch(`${ANTHROPIC_PROXY_URL}/v1/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
       model: modelId,
@@ -222,12 +352,16 @@ async function callAnthropic(systemPrompt, userMessage, model = 'haiku', maxToke
     }),
   });
 
+  console.log('[LLM] API status:', response.status);
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
+    console.error('[LLM] API error:', error);
     throw new Error(`API Error: ${response.status} - ${error.error?.message || 'Unknown'}`);
   }
 
   const data = await response.json();
+  console.log('[LLM] API respuesta recibida, longitud:', data.content?.[0]?.text?.length || 0);
   return data.content[0]?.text || '';
 }
 

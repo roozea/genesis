@@ -5,14 +5,20 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    // Proxy para Ollama (evita CORS)
     proxy: {
+      // Proxy para Ollama (evita CORS)
       '/ollama': {
         target: 'http://localhost:11434',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ollama/, ''),
-        // Timeout más largo para modelos lentos
         timeout: 120000,
+      },
+      // Proxy para Anthropic API (evita CORS)
+      '/anthropic': {
+        target: 'https://api.anthropic.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/anthropic/, ''),
+        timeout: 60000,
       },
     },
   },

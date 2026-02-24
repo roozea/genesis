@@ -90,6 +90,20 @@ export default function Header({
           >
             <span style={{ fontSize: 10 }}>{source.emoji}</span>
             <span style={{ color: source.color, fontSize: 7 }}>{source.label}</span>
+            {/* Indicador de API online */}
+            {llmState.apiOnline && (
+              <span
+                title="API conectada"
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  backgroundColor: '#50c878',
+                  boxShadow: '0 0 4px #50c878',
+                  marginLeft: 2,
+                }}
+              />
+            )}
           </div>
 
           {/* Recursos */}
