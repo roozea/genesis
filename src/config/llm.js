@@ -35,6 +35,13 @@ let llmState = {
 // Key para localStorage
 const API_KEY_STORAGE = 'genesis_anthropic_api_key';
 
+// URL para Anthropic: proxy en dev, directo en producción
+const isDev = import.meta.env.DEV;
+const ANTHROPIC_URL = isDev ? '/anthropic' : 'https://api.anthropic.com';
+
+// URL del proxy de Vite para Ollama (evita CORS)
+const OLLAMA_PROXY_URL = '/ollama';
+
 // Listeners para cambios de estado
 const stateListeners = new Set();
 
@@ -101,12 +108,13 @@ export async function testApiConnection() {
   try {
     console.log('[LLM] Probando conexión API...');
 
-    const response = await fetch('/anthropic/v1/messages', {
+    const response = await fetch(`${ANTHROPIC_URL}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': key,
         'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
         model: 'claude-3-5-haiku-20241022',
@@ -147,9 +155,6 @@ export async function testApiConnection() {
     };
   }
 }
-
-// URL del proxy de Vite para Ollama (evita CORS)
-const OLLAMA_PROXY_URL = '/ollama';
 
 /**
  * Registra un listener para cambios de estado
@@ -308,9 +313,6 @@ async function callOllama(systemPrompt, userMessage, tier = 'fast', maxTokens = 
   return data.response || '';
 }
 
-// URL del proxy de Vite para Anthropic (evita CORS)
-const ANTHROPIC_PROXY_URL = '/anthropic';
-
 /**
  * Llama a la API de Anthropic via proxy
  * @param {number} maxTokens - Límite de tokens (default según modelo)
@@ -337,12 +339,13 @@ async function callAnthropic(systemPrompt, userMessage, model = 'haiku', maxToke
 
   console.log('[LLM] Llamando API Claude:', { model: modelId, tokens });
 
-  const response = await fetch(`${ANTHROPIC_PROXY_URL}/v1/messages`, {
+  const response = await fetch(`${ANTHROPIC_URL}/v1/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
       model: modelId,
