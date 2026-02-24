@@ -67,6 +67,7 @@ import {
   setPendingApiTask,
   getPendingApiTask,
   clearPendingApiTask,
+  hasRedFlags,
 } from './agents/taskSystem';
 import {
   getAvailableProjects,
@@ -675,10 +676,35 @@ export default function App() {
     setWorkProgress(null);
     setWorkStep(null);
 
+    const activeTask = getActiveTask();
+
+    // ═══ VALIDAR RESPUESTA LOCAL ═══
+    // Si usó local y tiene red flags, ofrecer API
+    if (!usingApi && activeTask?.deliverable?.content && hasRedFlags(activeTask.deliverable.content)) {
+      console.log('[APP] ⚠️ Red flags detectadas en respuesta local');
+      setAgent(prev => ({ ...prev, state: 'scratching' }));
+
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Mmm, mi respuesta no es confiable para esto. ¿Quieres que lo intente vía API? Con Claude te doy algo mejor. 🔌`,
+        timestamp: Date.now(),
+      }]);
+
+      // Guardar tarea para posible retry con API
+      setPendingApiTask(activeTask);
+      addLog('task', '⚠️ Respuesta local con red flags - ofreciendo API', '⚠️');
+
+      setTimeout(() => {
+        setAgent(prev => ({ ...prev, state: 'idle' }));
+      }, 500);
+
+      setAgentStatus('online');
+      return;
+    }
+
     // Mostrar resultado - cambiar a estado delivering (ping)
     setAgent(prev => ({ ...prev, state: 'delivering' }));
 
-    const activeTask = getActiveTask();
     if (activeTask && activeTask.deliverable) {
       const deliverableMsg = {
         type: 'deliverable',
@@ -773,12 +799,12 @@ export default function App() {
         const classification = classifyTask(task.description);
         console.log('[APP] Clasificación de tarea:', classification);
 
-        // Si es impossible, ofrecer API obligatoriamente
-        if (classification === 'impossible') {
+        // Si NECESITA API obligatoriamente
+        if (classification === 'needs_api') {
           setPendingApiTask(task);
           setMessages(prev => [...prev, {
             role: 'assistant',
-            content: `Eso necesita info actualizada que no tengo en local. ¿Quieres que lo investigue vía API (Claude)? Es más potente pero usa la conexión de pago. Responde "sí" o "no". 🔌`,
+            content: `Eso necesita más capacidad de la que tengo en local. ¿Quieres que use la API de Claude? Es más potente y da recursos dobles. 🔌`,
             timestamp: Date.now(),
           }]);
           addLog('task', 'Tarea requiere API - esperando aprobación', '⚠️');
@@ -787,12 +813,12 @@ export default function App() {
           return;
         }
 
-        // Si es partial, ofrecer opción
+        // Si es PARTIAL, ofrecer opción
         if (classification === 'partial') {
           setPendingApiTask(task);
           setMessages(prev => [...prev, {
             role: 'assistant',
-            content: `Puedo explicarte lo que sé, pero mi info puede estar desactualizada. Si necesitas datos más precisos puedo usar la API (Claude). ¿Local o API? 🤔`,
+            content: `Puedo intentarlo en local pero mi info puede estar incompleta. Con la API te doy algo mejor. ¿Local o API? 🤔`,
             timestamp: Date.now(),
           }]);
           addLog('task', 'Tarea parcial - ofreciendo API', '⚠️');
@@ -801,7 +827,7 @@ export default function App() {
           return;
         }
 
-        // Si es 'possible', procesar normalmente con local
+        // Si es LOCAL_OK, procesar normalmente con local
         const confirmMsg = getConfirmationMessage(taskIntent);
         setMessages(prev => [...prev, { role: 'assistant', content: confirmMsg, timestamp: Date.now() }]);
         addLog('task', `Nueva tarea: ${taskIntent.title}`, TASK_TYPES[taskIntent.taskType].icon);

@@ -103,51 +103,73 @@ Sé honesto pero constructivo.`,
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Palabras clave que indican que la tarea necesita info actualizada/internet
+ * Regex para detectar tareas que NECESITAN API (info actual/internet)
  */
-const IMPOSSIBLE_KEYWORDS = [
-  'precio actual', 'cotización', 'hoy en día', 'últimas noticias',
-  'tendencias actuales', 'clima de hoy', 'dólar hoy', 'bitcoin hoy',
-  'últimos', 'reciente', 'esta semana', 'este mes', 'este año 2026',
-  'busca en internet', 'busca en google', 'link', 'url actualizada',
-  'api key', 'credenciales', 'documentación oficial actual',
-];
+const NEEDS_API_REGEX = /qué pasó|noticias|ayer|hoy día|actualidad|precio|clima|últim[oa]s?|reciente|resultado|partido|2024|2025|2026|tendencias|mercado|bolsa|empresa actual|cotización|dólar|bitcoin|cripto|acciones|busca en internet|busca en google|link actual|url actual/i;
 
 /**
- * Palabras clave que indican tarea parcialmente posible (info puede estar desactualizada)
+ * Regex para detectar tareas que SÍ puede hacer bien en local
  */
-const PARTIAL_KEYWORDS = [
-  'versión más reciente', 'mejor práctica actual', 'framework popular',
-  'comparativa', 'vs', 'cuál es mejor', 'recomendación',
-  'salario promedio', 'mercado laboral', 'estadísticas',
-];
+const CAN_DO_LOCAL_REGEX = /qué es|cómo funciona|explica|diferencia entre|compara conceptos|ventajas|desventajas|tutorial|ejemplo|código|escribe|función|componente|script|arquitectura|diseño|patrón|principios|algoritmo|estructura de datos|concepto|definición|fundamentos|básico|introducción/i;
 
 /**
  * Clasifica una tarea según si es posible hacerla con modelo local
  * @param {string} description - Descripción de la tarea
- * @returns {'possible' | 'partial' | 'impossible'}
+ * @returns {'local_ok' | 'partial' | 'needs_api'}
  */
 export function classifyTask(description) {
-  const descLower = description.toLowerCase();
+  const needsApi = NEEDS_API_REGEX.test(description);
+  const canDoLocal = CAN_DO_LOCAL_REGEX.test(description);
 
-  // Verificar si necesita info actualizada/internet (imposible local)
-  for (const keyword of IMPOSSIBLE_KEYWORDS) {
-    if (descLower.includes(keyword)) {
-      console.log(`[TASK] Clasificación: IMPOSSIBLE (keyword: "${keyword}")`);
-      return 'impossible';
+  if (needsApi && !canDoLocal) {
+    console.log('[TASK] Clasificación: NEEDS_API (requiere info actualizada)');
+    return 'needs_api';
+  }
+
+  if (needsApi && canDoLocal) {
+    console.log('[TASK] Clasificación: PARTIAL (puede hacer algo pero limitado)');
+    return 'partial';
+  }
+
+  console.log('[TASK] Clasificación: LOCAL_OK (puede hacerlo bien)');
+  return 'local_ok';
+}
+
+/**
+ * Detecta "red flags" en respuestas locales que indican invención o falta de info
+ * @param {string} text - Respuesta del modelo
+ * @returns {boolean}
+ */
+export function hasRedFlags(text) {
+  if (!text) return true;
+
+  const redFlagPatterns = [
+    /no se registraron/i,
+    /no hubo cambios significativos/i,
+    /la situación (se )?mantuvo/i,
+    /no tengo acceso a información/i,
+    /no puedo acceder/i,
+    /\[fecha\]/i,
+    /\[nombre\]/i,
+    /\[año\]/i,
+    /\[url\]/i,
+    /\[insertar/i,
+    /según mis datos hasta/i,
+    /mi conocimiento tiene como fecha/i,
+    /no tengo información actualizada/i,
+    /podría haber cambiado/i,
+    /te recomiendo verificar/i,
+    /consulta fuentes actualizadas/i,
+  ];
+
+  for (const pattern of redFlagPatterns) {
+    if (pattern.test(text)) {
+      console.log('[TASK] ⚠️ Red flag detectada:', pattern);
+      return true;
     }
   }
 
-  // Verificar si la info puede estar desactualizada (parcial)
-  for (const keyword of PARTIAL_KEYWORDS) {
-    if (descLower.includes(keyword)) {
-      console.log(`[TASK] Clasificación: PARTIAL (keyword: "${keyword}")`);
-      return 'partial';
-    }
-  }
-
-  console.log('[TASK] Clasificación: POSSIBLE');
-  return 'possible';
+  return false;
 }
 
 /**
