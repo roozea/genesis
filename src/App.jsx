@@ -63,6 +63,10 @@ import {
   onTaskStateChange,
   TASK_TYPES,
   spendResources,
+  classifyTask,
+  setPendingApiTask,
+  getPendingApiTask,
+  clearPendingApiTask,
 } from './agents/taskSystem';
 import {
   getAvailableProjects,
@@ -633,6 +637,75 @@ export default function App() {
     setAgentStatus('online');
   }, [addLog]);
 
+  // ═══════════════════════════════════════════════════════════════
+  // PROCESAR TAREA CON UI (encapsula toda la lógica visual)
+  // ═══════════════════════════════════════════════════════════════
+  const processTaskWithUI = useCallback(async (tier = 'task') => {
+    const usingApi = tier === 'chat';
+
+    // Ir al taller si no está ahí
+    if (currentLocation !== 'workshop') {
+      forceDestination('workshop', 'Ir al taller a trabajar');
+      addLog('system', 'Arq va al taller a trabajar', '🏗️');
+      setTimeout(() => makeDecision(), 100);
+    }
+
+    // Cambiar estado visual
+    setAgent(prev => ({ ...prev, state: 'working' }));
+    setAgentStatus('working');
+    setMoodState('focused');
+    setMood('focused');
+    setWorkProgress(0);
+
+    // Procesar tarea (con callbacks para pasos)
+    setIsLoading(false);
+
+    await processTask((step, current, total) => {
+      const progress = Math.round(((current + 1) / total) * 100);
+      setWorkProgress(progress);
+      const stepText = usingApi ? `${step} (vía API)` : step;
+      setWorkStep({ text: stepText, current: current + 1, total });
+      setThought(`${stepText} (${current + 1}/${total})`);
+      setThoughtType('work');
+      addLog('work', `Paso ${current + 1}/${total}: ${stepText}`, usingApi ? '☁️' : '⚙️');
+    }, tier);
+
+    setThought(null);
+    setThoughtType(null);
+    setWorkProgress(null);
+    setWorkStep(null);
+
+    // Mostrar resultado - cambiar a estado delivering (ping)
+    setAgent(prev => ({ ...prev, state: 'delivering' }));
+
+    const activeTask = getActiveTask();
+    if (activeTask && activeTask.deliverable) {
+      const deliverableMsg = {
+        type: 'deliverable',
+        timestamp: Date.now(),
+        deliverable: {
+          type: activeTask.type,
+          title: activeTask.title,
+          content: activeTask.deliverable.content,
+          stats: { time: Math.round((activeTask.completedAt - activeTask.createdAt) / 1000) },
+          reward: activeTask.reward,
+          status: 'review',
+          usedApi: activeTask.usedApi,
+        },
+      };
+      setMessages(prev => [...prev, deliverableMsg]);
+      const sourceLabel = activeTask.usedApi ? '☁️ API' : '🖥️ LOCAL';
+      addLog('task', `Tarea completada [${sourceLabel}], esperando review`, '✅');
+    }
+
+    // Volver a idle después del ping
+    setTimeout(() => {
+      setAgent(prev => ({ ...prev, state: 'idle' }));
+    }, 500);
+
+    setAgentStatus('online');
+  }, [currentLocation, addLog, makeDecision]);
+
   // Enviar mensaje al chat
   const handleSendMessage = useCallback(async (text) => {
     // Agregar mensaje del usuario con timestamp
@@ -643,78 +716,98 @@ export default function App() {
     addLog('chat', `Rodrigo: ${text.slice(0, 30)}...`, '💬');
 
     try {
+      // ═══ VERIFICAR SI HAY TAREA PENDIENTE DE APROBACIÓN API ═══
+      const pendingTask = getPendingApiTask();
+      if (pendingTask) {
+        const msgLower = text.toLowerCase();
+
+        // Usuario aprueba usar API
+        if (msgLower.match(/sí|si|dale|usa api|api|hazlo|adelante|ok|va|claro/)) {
+          console.log('[APP] Usuario aprobó usar API para tarea pendiente');
+          clearPendingApiTask();
+
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '¡Perfecto! Conecto con Claude para darte una respuesta más completa. Dame unos segundos... 🔌☁️',
+            timestamp: Date.now(),
+          }]);
+          addLog('task', 'Procesando vía API (Claude)', '☁️');
+
+          // Procesar tarea con UI usando API (tier 'chat')
+          await processTaskWithUI('chat');
+          setIsLoading(false);
+          setAgentStatus('online');
+          return;
+        }
+
+        // Usuario rechaza API, usar local
+        if (msgLower.match(/no|mejor no|sin api|local|déjalo|nah|nel/)) {
+          console.log('[APP] Usuario rechazó API, usando local');
+          clearPendingApiTask();
+
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: 'Ok, lo hago con lo que tengo en local. Puede que la info esté limitada, pero haré mi mejor esfuerzo. 🖥️',
+            timestamp: Date.now(),
+          }]);
+
+          // Procesar tarea con UI usando local (tier 'task')
+          await processTaskWithUI('task');
+          setIsLoading(false);
+          setAgentStatus('online');
+          return;
+        }
+        // Si no es ni sí ni no, seguir con el mensaje como chat normal
+      }
+
       // ═══ DETECTAR INTENCIÓN DE TAREA ═══
       const taskIntent = parseTaskIntent(text);
       console.log('[APP] Task intent:', taskIntent);
 
       // ═══ NUEVA TAREA ═══
       if (taskIntent.type === 'new_task') {
+        // Crear tarea primero
+        const task = createTask(taskIntent);
+
+        // ═══ CLASIFICAR TAREA ═══
+        const classification = classifyTask(task.description);
+        console.log('[APP] Clasificación de tarea:', classification);
+
+        // Si es impossible, ofrecer API obligatoriamente
+        if (classification === 'impossible') {
+          setPendingApiTask(task);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Eso necesita info actualizada que no tengo en local. ¿Quieres que lo investigue vía API (Claude)? Es más potente pero usa la conexión de pago. Responde "sí" o "no". 🔌`,
+            timestamp: Date.now(),
+          }]);
+          addLog('task', 'Tarea requiere API - esperando aprobación', '⚠️');
+          setIsLoading(false);
+          setAgentStatus('online');
+          return;
+        }
+
+        // Si es partial, ofrecer opción
+        if (classification === 'partial') {
+          setPendingApiTask(task);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Puedo explicarte lo que sé, pero mi info puede estar desactualizada. Si necesitas datos más precisos puedo usar la API (Claude). ¿Local o API? 🤔`,
+            timestamp: Date.now(),
+          }]);
+          addLog('task', 'Tarea parcial - ofreciendo API', '⚠️');
+          setIsLoading(false);
+          setAgentStatus('online');
+          return;
+        }
+
+        // Si es 'possible', procesar normalmente con local
         const confirmMsg = getConfirmationMessage(taskIntent);
         setMessages(prev => [...prev, { role: 'assistant', content: confirmMsg, timestamp: Date.now() }]);
         addLog('task', `Nueva tarea: ${taskIntent.title}`, TASK_TYPES[taskIntent.taskType].icon);
 
-        // Crear tarea
-        const task = createTask(taskIntent);
-
-        // Ir al taller si no está ahí
-        if (currentLocation !== 'workshop') {
-          forceDestination('workshop', 'Ir al taller a trabajar');
-          addLog('system', 'Arq va al taller a trabajar', '🏗️');
-          setTimeout(() => makeDecision(), 100);
-        }
-
-        // Cambiar estado visual
-        setAgent(prev => ({ ...prev, state: 'working' }));
-        setAgentStatus('working');
-        setMoodState('focused');
-        setMood('focused');
-        setWorkProgress(0); // Iniciar barra de progreso
-
-        // Procesar tarea (con callbacks para pasos)
-        setIsLoading(false); // Permitir que el usuario siga viendo el chat
-
-        await processTask((step, current, total) => {
-          const progress = Math.round(((current + 1) / total) * 100);
-          setWorkProgress(progress);
-          setWorkStep({ text: step, current: current + 1, total }); // Para el indicador del chat
-          setThought(`${step} (${current + 1}/${total})`);
-          setThoughtType('work'); // Tipo de thought para estilos
-          addLog('work', `Paso ${current + 1}/${total}: ${step}`, '⚙️');
-        });
-
-        setThought(null);
-        setThoughtType(null);
-        setWorkProgress(null); // Ocultar barra de progreso
-        setWorkStep(null); // Ocultar indicador del chat
-
-        // Mostrar resultado - cambiar a estado delivering (ping)
-        setAgent(prev => ({ ...prev, state: 'delivering' }));
-
-        const activeTask = getActiveTask();
-        if (activeTask && activeTask.deliverable) {
-          // Crear mensaje de deliverable con formato especial
-          const deliverableMsg = {
-            type: 'deliverable',
-            timestamp: Date.now(),
-            deliverable: {
-              type: activeTask.type,
-              title: activeTask.title,
-              content: activeTask.deliverable.content,
-              stats: { time: Math.round((activeTask.completedAt - activeTask.createdAt) / 1000) },
-              reward: activeTask.reward,
-              status: 'review',
-            },
-          };
-          setMessages(prev => [...prev, deliverableMsg]);
-          addLog('task', 'Tarea completada, esperando review', '✅');
-        }
-
-        // Volver a idle después del ping
-        setTimeout(() => {
-          setAgent(prev => ({ ...prev, state: 'idle' }));
-        }, 500);
-
-        setAgentStatus('online');
+        // Procesar tarea con UI (tier 'task' = local)
+        await processTaskWithUI('task');
         return;
       }
 

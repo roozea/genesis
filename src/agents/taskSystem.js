@@ -98,6 +98,85 @@ Sé honesto pero constructivo.`,
   },
 };
 
+// ═══════════════════════════════════════════════════════════════
+// SISTEMA DE CLASIFICACIÓN Y ESCALAMIENTO A API
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Palabras clave que indican que la tarea necesita info actualizada/internet
+ */
+const IMPOSSIBLE_KEYWORDS = [
+  'precio actual', 'cotización', 'hoy en día', 'últimas noticias',
+  'tendencias actuales', 'clima de hoy', 'dólar hoy', 'bitcoin hoy',
+  'últimos', 'reciente', 'esta semana', 'este mes', 'este año 2026',
+  'busca en internet', 'busca en google', 'link', 'url actualizada',
+  'api key', 'credenciales', 'documentación oficial actual',
+];
+
+/**
+ * Palabras clave que indican tarea parcialmente posible (info puede estar desactualizada)
+ */
+const PARTIAL_KEYWORDS = [
+  'versión más reciente', 'mejor práctica actual', 'framework popular',
+  'comparativa', 'vs', 'cuál es mejor', 'recomendación',
+  'salario promedio', 'mercado laboral', 'estadísticas',
+];
+
+/**
+ * Clasifica una tarea según si es posible hacerla con modelo local
+ * @param {string} description - Descripción de la tarea
+ * @returns {'possible' | 'partial' | 'impossible'}
+ */
+export function classifyTask(description) {
+  const descLower = description.toLowerCase();
+
+  // Verificar si necesita info actualizada/internet (imposible local)
+  for (const keyword of IMPOSSIBLE_KEYWORDS) {
+    if (descLower.includes(keyword)) {
+      console.log(`[TASK] Clasificación: IMPOSSIBLE (keyword: "${keyword}")`);
+      return 'impossible';
+    }
+  }
+
+  // Verificar si la info puede estar desactualizada (parcial)
+  for (const keyword of PARTIAL_KEYWORDS) {
+    if (descLower.includes(keyword)) {
+      console.log(`[TASK] Clasificación: PARTIAL (keyword: "${keyword}")`);
+      return 'partial';
+    }
+  }
+
+  console.log('[TASK] Clasificación: POSSIBLE');
+  return 'possible';
+}
+
+/**
+ * Tarea pendiente de aprobación para usar API
+ */
+let pendingApiTask = null;
+
+/**
+ * Guarda una tarea pendiente de aprobación API
+ */
+export function setPendingApiTask(task) {
+  pendingApiTask = task;
+  console.log('[TASK] Tarea pendiente de aprobación API:', task?.title);
+}
+
+/**
+ * Obtiene la tarea pendiente de API
+ */
+export function getPendingApiTask() {
+  return pendingApiTask;
+}
+
+/**
+ * Limpia la tarea pendiente de API
+ */
+export function clearPendingApiTask() {
+  pendingApiTask = null;
+}
+
 /**
  * Genera string de fecha y hora actual para inyectar en prompts
  */
@@ -321,13 +400,23 @@ export function getActiveTask() {
 }
 
 /**
- * Procesa la tarea activa con Ollama
+ * Procesa la tarea activa
+ * @param {function} onStepUpdate - Callback para actualizar UI
+ * @param {string} forceTier - 'task' (local), 'chat' (API), o null para auto
  */
-export async function processTask(onStepUpdate) {
+export async function processTask(onStepUpdate, forceTier = null) {
   const task = taskState.activeTask;
   if (!task) return null;
 
   const taskType = TASK_TYPES[task.type];
+
+  // Determinar tier: si se fuerza API, usar 'chat' (que prefiere Claude)
+  const tier = forceTier || 'task';
+  const usingApi = forceTier === 'chat';
+
+  if (usingApi) {
+    console.log('[TASK] 🔌 Procesando vía API (Claude)...');
+  }
 
   // Obtener memorias relevantes
   const memories = retrieveMemories(task.description, 3);
@@ -348,7 +437,10 @@ export async function processTask(onStepUpdate) {
     notifyListeners();
 
     if (onStepUpdate) {
-      onStepUpdate(task.workSteps[i], i, task.workSteps.length);
+      const stepText = usingApi
+        ? `${task.workSteps[i]} (vía API)`
+        : task.workSteps[i];
+      onStepUpdate(stepText, i, task.workSteps.length);
     }
 
     // Delay entre pasos (1-2 segundos)
@@ -356,15 +448,27 @@ export async function processTask(onStepUpdate) {
   }
 
   // Construir prompt completo con fecha/hora inyectada
-  const fullPrompt = taskType.prompt
+  let fullPrompt = taskType.prompt
     .replace('{fecha_hora}', getCurrentDateTime())
     .replace('{descripción}', task.description)
     + '\n\nCONTEXTO DE TRABAJOS ANTERIORES:\n' + previousTasks
     + '\n\nMEMORIAS RELEVANTES:\n' + memoriesText;
 
-  // Procesar con LLM (tier task para respuestas largas)
-  console.log('[TASK] Procesando con LLM...');
-  const result = await think(fullPrompt, task.description, 'task');
+  // Si usa API, el prompt puede ser más ambicioso
+  if (usingApi) {
+    fullPrompt += '\n\n═══ MODO API ═══\n'
+      + 'Tienes acceso a conocimiento amplio y actualizado (Claude). '
+      + 'Da una respuesta completa, detallada y precisa. '
+      + 'Puedes incluir información más reciente que un modelo local no tendría.';
+  } else {
+    fullPrompt += '\n\n═══ MODO LOCAL ═══\n'
+      + 'Solo incluye información que sepas con certeza. '
+      + 'Si no sabes algo actualizado, dilo honestamente. No inventes.';
+  }
+
+  // Procesar con LLM
+  console.log(`[TASK] Procesando con tier=${tier}...`);
+  const result = await think(fullPrompt, task.description, tier);
 
   if (result.source === 'fallback' || !result.response) {
     // Fallback
@@ -372,6 +476,7 @@ export async function processTask(onStepUpdate) {
       content: `*se rasca el casco* No logré completar esta tarea... mi mente está nublada. ¿Podemos intentar de nuevo? 🔧`,
       approved: null,
       source: 'fallback',
+      tier: tier,
     };
     task.status = 'failed';
   } else {
@@ -379,14 +484,27 @@ export async function processTask(onStepUpdate) {
       content: result.response,
       approved: null,
       source: result.source,
+      tier: tier,
     };
     task.status = 'review'; // Esperando aprobación
+
+    // Si usó API (no local), dar recursos DOBLES
+    const usedApi = result.source !== 'local';
+    if (usedApi) {
+      task.reward = {
+        knowledge: taskType.reward.knowledge * 2,
+        materials: taskType.reward.materials * 2,
+        inspiration: taskType.reward.inspiration * 2,
+      };
+      task.usedApi = true;
+      console.log('[TASK] 🔌 Recursos dobles por usar API:', task.reward);
+    }
   }
 
   task.completedAt = Date.now();
   notifyListeners();
 
-  console.log('[TASK] Tarea procesada:', task.status);
+  console.log('[TASK] Tarea procesada:', task.status, 'source:', result.source);
   return task;
 }
 
@@ -543,8 +661,11 @@ export function formatDeliverable(task) {
   const taskType = TASK_TYPES[task.type];
   const reward = task.reward;
 
-  // Cabecera con tipo de tarea
-  let formatted = `\n━━━ ${taskType.icon} ${taskType.name.toUpperCase()}: ${task.title.slice(0, 30)} ━━━\n\n`;
+  // Badge de fuente (LOCAL vs API)
+  const sourceIcon = task.usedApi ? '☁️ API' : '🖥️ LOCAL';
+
+  // Cabecera con tipo de tarea y fuente
+  let formatted = `\n━━━ ${taskType.icon} ${taskType.name.toUpperCase()}: ${task.title.slice(0, 30)} [${sourceIcon}] ━━━\n\n`;
 
   // Contenido
   formatted += task.deliverable.content;
@@ -553,16 +674,19 @@ export function formatDeliverable(task) {
   formatted += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
   formatted += `⏱️ ${Math.round((task.completedAt - task.createdAt) / 1000)}s`;
 
+  // Bonus text si usó API
+  const bonusText = task.usedApi ? ' (API bonus x2)' : '';
+
   // Mostrar recompensa según estado de aprobación
   if (task.deliverable.approved === true) {
     // APROBADA: Recursos ganados
-    formatted += `  ✅ GANADO: 📚+${reward.knowledge} 🪨+${reward.materials} ✨+${reward.inspiration}`;
+    formatted += `  ✅ GANADO: 📚+${reward.knowledge} 🪨+${reward.materials} ✨+${reward.inspiration}${bonusText}`;
   } else if (task.deliverable.approved === false) {
     // RECHAZADA: Retrabajando
     formatted += `  🔄 Mejorando... (recompensa pendiente)`;
   } else {
     // PENDIENTE: Esperando aprobación - NO muestra como ganados
-    formatted += `  ⏳ Si apruebas: 📚+${reward.knowledge} 🪨+${reward.materials} ✨+${reward.inspiration}`;
+    formatted += `  ⏳ Si apruebas: 📚+${reward.knowledge} 🪨+${reward.materials} ✨+${reward.inspiration}${bonusText}`;
   }
 
   return formatted;
